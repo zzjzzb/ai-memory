@@ -1,10 +1,15 @@
 # ai-memory
 
-Local **Rust + SQLite** memory for agent harnesses (pi, Claude-like, Codex-like). You keep the model loop. This crate stores working / episodic / profile notes **per project** and packs a **token-budgeted** slice for the next call.
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
+[![Rust](https://img.shields.io/badge/rust-1.74%2B-orange.svg)](https://www.rust-lang.org/)
+
+**Open source** local **Rust + SQLite** memory for agent harnesses (pi, Claude-like, Codex-like). You keep the model loop. This crate stores working / episodic / profile notes **per project** and packs a **token-budgeted** slice for the next call.
 
 It does **not** stuff a 1M-token transcript into the prompt, run consolidate in the background, or talk to an LLM.
 
 **Docs:** [USAGE (EN)](docs/USAGE.md) · [用法 (中文)](docs/USAGE.zh-CN.md) · [ARCHITECTURE (EN)](docs/ARCHITECTURE.md) · [架构 (中文)](docs/ARCHITECTURE.zh-CN.md)
+
+**Contribute:** [CONTRIBUTING.md](CONTRIBUTING.md) · [参与贡献](CONTRIBUTING.zh-CN.md) · [Issues](https://github.com/zzjzzb/ai-memory/issues) · [Pull requests](https://github.com/zzjzzb/ai-memory/pulls)
 
 ## Scenario → call → get
 
@@ -49,6 +54,15 @@ cargo run --example harness_loop_sim
 | Call `compact_working` / `consolidate` when you mean to | Add an LLM client in this crate |
 
 Isolation is `project_id`. Two sessions on one file do not leak recall.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.
 
 ## Develop
 
