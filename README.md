@@ -142,7 +142,10 @@ A Lance backend would implement `MemoryStore` (and optionally `VectorIndex`) the
 ```bash
 cargo test
 cargo test --features sqlite-vec   # optional extension path
+cargo bench                        # not part of cargo test
 cargo run --example two_projects
 cargo run --example assistant_sim
 cargo run --example harness_loop_sim
 ```
+
+`open()` applies WAL and other SQLite defaults automatically. Performance knobs stay out of the hot path; you still call `consolidate` yourself. See [USAGE](docs/USAGE.md#transparent-performance).

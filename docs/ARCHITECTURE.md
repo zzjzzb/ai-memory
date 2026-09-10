@@ -95,36 +95,67 @@ Several agents or products share one file. Recall, pin, forget, and tool dispatc
 
 ```mermaid
 flowchart TB
-    Open[open file store] --> WAL[PRAGMA journal_mode=WAL]
-    WAL --> Busy[busy_timeout 5s]
-    Busy --> Sync[synchronous=NORMAL]
-    Remember[remember_many] --> Tx[single SQLite transaction]
-    Recall[recall] --> SQL[SQL filter: project + time + tier]
+    Open[open / AgentSession] --> P[PRAGMA: WAL NORMAL FK temp_store cache_size busy_timeout]
+    P --> Stmt[prepared statement cache]
+    Remember[remember / remember_many] --> LRU[in-process embed LRU]
+    Recall[recall] --> LRU
+    LRU --> Tx[single SQLite transaction]
+    Recall --> SQL[SQL: project + time + tier, pinned+recent first, scan_limit]
     SQL --> TTL[drop expired unpinned]
-    TTL --> Prune[cheap keyword + recency prune]
-    Prune --> Blobs[load embedding blobs for survivors only]
+    TTL --> Prune[cheap keyword + recency prune, pinned kept]
+    Prune --> Blobs[one IN query for embedding blobs]
     Blobs --> VI[VectorIndex.similar]
     VI --> Rank[hybrid score + top-k]
-    EmbInj[inject Embedder] --> Remember
-    EmbInj --> Recall
-    VecInj[inject VectorIndex / sqlite-vec] --> VI
 ```
 
-- **WAL + busy_timeout** on file opens. In-process access is serialized by `Mutex<Connection>` — **one writer** in this process. WAL still helps other processes reading the same file.
-- **Batch writes:** `remember_many` / `AgentSession::remember_turn` validate and embed first, then insert in one transaction (invalid item → nothing committed).
-- **Candidate prune:** keyword + recency ranking before vector scoring; `MemoryPolicy.recall.candidate_prune` (default 256, `0` = off) or `RecallQuery::with_candidate_limit`.
-- **Injectable** `Embedder` and `VectorIndex`. Default brute-force cosine; `--features sqlite-vec` for `SqliteVecIndex`.
+Details: [Transparent performance](#5-transparent-performance--what-you-get-for-free).
+
+## 5. Transparent performance — what you get for free
+
+SME engineers wiring pi / Claude-like / Codex-like harnesses should not tune a jungle of knobs. `open("./memory.db")` and `store.session("project")` already apply the fast path.
+
+**You get for free (no extra API):**
+
+| Default | What it does |
+|---------|----------------|
+| WAL + `synchronous=NORMAL` | File stores; crash-safe enough for a local agent DB |
+| `busy_timeout` 5s | Wait on a locked file instead of failing immediately |
+| `foreign_keys=ON` | Project delete cascades memories + embeddings |
+| `temp_store=MEMORY` | Sort/temp tables stay in RAM |
+| `cache_size` ≈ 16 MiB | Page cache (`PRAGMA cache_size=-16384`) |
+| Statement cache | Hot `remember` / `recall` / `get` reuse prepared SQL |
+| Embed LRU (2048) | Same text + embedder dim is not re-hashed in this process. Bytes may be shared across projects; each `remember` still writes its own memory row |
+| `scan_limit` 2048 | Recall scans pinned then recent rows first |
+| `candidate_prune` 256 | Cheap keyword + recency cut before vector scoring; pinned rows are kept |
+| `RecallQuery` limit 8 | Naive `recall("...")` stays a small top-k |
+| Single-writer mutex | In-process `Mutex<Connection>` — one writer in this process |
+
+Inspect with `store.applied_pragmas()`. Sessions inherit the same store (same PRAGMAs, same embed cache): `store.session("support-bot")` or `AgentSession::attach`.
+
+**Fast write path you should still choose:** `remember_many` / `AgentSession::remember_turn` for a turn’s notes (one transaction). Single `remember` already uses that same transaction helper for one item — API unchanged.
+
+**What you must still call:** `consolidate` (or `end_turn_consolidate` / the `memory_consolidate` tool). This crate **does not** run consolidate in the background. TTL already hides expired unpinned rows from recall; consolidate is what deletes them and promotes tiers. Call it when you mean to — typically end of turn or a cron you own.
+
+**Not done here (on purpose):** silent policy mutation, network embedders as default, auto-consolidate, turning the crate into an LLM harness.
+
+Microbenchmarks (not part of `cargo test`):
+
+```bash
+cargo bench
+```
+
+See `benches/memory_hot_path.rs` (single remember, batch vs loop, recall on a populated store).
 
 ## Wiring into a generic tool-calling loop
 
 No vendor SDK. Register JSON schemas, then drive the turn:
 
 ```rust
-use ai_memory::{memory_tool_specs, AgentSession, SqliteStore};
+use ai_memory::{memory_tool_specs, SqliteStore};
 
 let store = SqliteStore::open("./memory.db")?;
 store.create_project("support-bot", ai_memory::MemoryPolicy::chat())?;
-let session = AgentSession::sqlite(store, "support-bot")?;
+let session = store.session("support-bot")?;
 
 // 1. Give these to pi / Claude / Codex / DeepSeek-style harnesses
 let tools = memory_tool_specs();

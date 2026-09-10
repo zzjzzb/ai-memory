@@ -41,6 +41,15 @@ impl AgentSession {
         Self::new(Arc::new(store), project_id)
     }
 
+    /// Same as [`Self::new`] — bind an existing store to a project.
+    pub fn attach(store: Arc<dyn MemoryStore>, project_id: impl Into<String>) -> Result<Self> {
+        Self::new(store, project_id)
+    }
+
+    pub fn remember(&self, req: RememberRequest) -> Result<Memory> {
+        self.store.remember(&self.project_id, req)
+    }
+
     pub fn project_id(&self) -> &str {
         &self.project_id
     }
@@ -84,5 +93,12 @@ impl AgentSession {
             Ok(data) => ToolResponse::ok(name, data),
             Err(e) => ToolResponse::err(name, e),
         }
+    }
+}
+
+impl crate::sqlite::SqliteStore {
+    /// Zero-config session: inherits this store's PRAGMAs, embed cache, and indexes.
+    pub fn session(&self, project_id: impl Into<String>) -> Result<AgentSession> {
+        AgentSession::sqlite(self.clone(), project_id)
     }
 }

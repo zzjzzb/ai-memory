@@ -80,12 +80,12 @@ cargo run --example harness_loop_sim
 For SME agents that already have a tool loop (pi, Claude-like, Codex-like, DeepSeek-like). Full diagrams: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ```rust
-use ai_memory::{memory_tool_specs, AgentSession, MemoryPolicy, SqliteStore, TOOL_RECALL};
+use ai_memory::{memory_tool_specs, MemoryPolicy, SqliteStore, TOOL_RECALL};
 use serde_json::json;
 
 let store = SqliteStore::open("./memory.db")?;
 store.create_project("support-bot", MemoryPolicy::chat())?;
-let session = AgentSession::sqlite(store, "support-bot")?;
+let session = store.session("support-bot")?; // or AgentSession::attach / ::sqlite
 
 // Register with the harness (same JSON Schema, two envelopes)
 let tools = memory_tool_specs();
@@ -99,7 +99,7 @@ let result = session.call_tool(TOOL_RECALL, json!({"text": "theme", "limit": 5})
 session.end_turn_consolidate()?;
 ```
 
-Tool names: `memory_remember`, `memory_recall`, `memory_forget`, `memory_pin`, `memory_consolidate`. `call_tool` never panics; failures set `ok: false` and `error`. Batch writes: `remember_many` / `session.remember_turn`. File stores use WAL + `busy_timeout`; this process is a **single writer** (`Mutex<Connection>`).
+Tool names: `memory_remember`, `memory_recall`, `memory_forget`, `memory_pin`, `memory_consolidate`. `call_tool` never panics; failures set `ok: false` and `error`. Batch writes: `remember_many` / `session.remember_turn`. `open()` already applies WAL and the other SQLite defaults; the session inherits them. This process is a **single writer** (`Mutex<Connection>`).
 
 ## API tour
 
@@ -118,7 +118,7 @@ let built = SqliteStore::builder()
     .build()?;
 ```
 
-Default embedder is `HashEmbedder` (deterministic, offline). Production quality needs your own `Embedder`.
+Default embedder is `HashEmbedder` (deterministic, offline). Production quality needs your own `Embedder`. `open()` applies SQLite PRAGMAs automatically — see [Transparent performance](#transparent-performance).
 
 ### Projects
 
@@ -193,10 +193,36 @@ Per project. Defaults:
 | pinned skips expiry | true |
 | recall weights | time 0.30, keyword 0.30, vector 0.40 |
 | recency half-life | 7 days |
+| candidate_prune | 256 (`0` = score every live row) |
+| scan_limit | 2048 live rows before prune (`0` = no cap) |
 
 Presets: `MemoryPolicy::chat()` (vector-heavy, shorter working TTL), `MemoryPolicy::journal()` (keyword-heavy, faster promote).
 
-**TTL and recall:** expired non-pinned memories are omitted from `recall` immediately. You do not have to call `consolidate` first (consolidate still deletes them).
+**TTL and recall:** expired non-pinned memories are omitted from `recall` immediately. You do not have to call `consolidate` first (consolidate still deletes them). Extra recall caps: `candidate_prune` 256, `scan_limit` 2048 (`0` = no cap).
+
+## Transparent performance
+
+`open()` / `open_in_memory()` / `store.session("id")` are meant to be fast without extra knobs.
+
+**What you get for free**
+
+- File open: WAL, `synchronous=NORMAL`, `foreign_keys=ON`, `temp_store=MEMORY`, ~16 MiB `cache_size`, 5s `busy_timeout`, prepared-statement cache
+- In-process embed LRU: identical text + embedder dim is not re-embedded (shared across projects in this process; each remember still inserts its own row)
+- Recall: TTL filter, pinned+recent `scan_limit`, keyword/recency prune before vectors, default `limit` 8
+- Single `remember` uses the same one-item transaction helper as `remember_many`
+
+Inspect: `store.applied_pragmas()`.
+
+**What you should still call**
+
+- `remember_many` / `session.remember_turn` when writing several notes in one turn
+- **`consolidate`** — never runs in the background. TTL only hides expired unpinned rows; consolidate deletes them and promotes tiers
+
+```bash
+cargo bench   # not part of cargo test; see benches/memory_hot_path.rs
+```
+
+Full tables: [ARCHITECTURE.md](ARCHITECTURE.md#5-transparent-performance--what-you-get-for-free).
 
 ## Isolation
 

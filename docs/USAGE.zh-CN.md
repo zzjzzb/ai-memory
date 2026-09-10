@@ -80,12 +80,12 @@ cargo run --example harness_loop_sim
 给已经有工具循环的中小团队 agent（pi、Claude-like、Codex-like、DeepSeek-like）。完整图见 [ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md)。
 
 ```rust
-use ai_memory::{memory_tool_specs, AgentSession, MemoryPolicy, SqliteStore, TOOL_RECALL};
+use ai_memory::{memory_tool_specs, MemoryPolicy, SqliteStore, TOOL_RECALL};
 use serde_json::json;
 
 let store = SqliteStore::open("./memory.db")?;
 store.create_project("support-bot", MemoryPolicy::chat())?;
-let session = AgentSession::sqlite(store, "support-bot")?;
+let session = store.session("support-bot")?; // 或 AgentSession::attach / ::sqlite
 
 let tools = memory_tool_specs();
 let _openai = tools.iter().map(|t| t.openai_tool());
@@ -98,7 +98,7 @@ let result = session.call_tool(TOOL_RECALL, json!({"text": "主题", "limit": 5}
 session.end_turn_consolidate()?;
 ```
 
-工具名：`memory_remember`、`memory_recall`、`memory_forget`、`memory_pin`、`memory_consolidate`。`call_tool` 不 panic，失败时 `ok: false`。批量写入用 `remember_many` / `session.remember_turn`。文件库启用 WAL + `busy_timeout`；本进程是**单写者**（`Mutex<Connection>`）。
+工具名：`memory_remember`、`memory_recall`、`memory_forget`、`memory_pin`、`memory_consolidate`。`call_tool` 不 panic，失败时 `ok: false`。批量写入用 `remember_many` / `session.remember_turn`。`open()` 已自动套上 WAL 等 SQLite 默认；session 继承同一套。本进程是**单写者**（`Mutex<Connection>`）。
 
 ## API 导览
 
@@ -117,7 +117,7 @@ let built = SqliteStore::builder()
     .build()?;
 ```
 
-默认嵌入器是离线确定性的 `HashEmbedder`。生产环境请自行实现 `Embedder`。
+默认嵌入器是离线确定性的 `HashEmbedder`。生产环境请自行实现 `Embedder`。`open()` 会自动应用 SQLite PRAGMA，见 [透明性能](#透明性能)。
 
 ### 项目
 
@@ -192,10 +192,36 @@ let report = chat.consolidate()?;
 | pin 跳过过期 | true |
 | 召回权重 | 时间 0.30、关键词 0.30、向量 0.40 |
 | 新近度半衰期 | 7 天 |
+| candidate_prune | 256（`0` = 对所有存活行打分） |
+| scan_limit | 剪枝前最多 2048 行（`0` = 不限制） |
 
 预设：`MemoryPolicy::chat()`（偏向量、working 更短），`MemoryPolicy::journal()`（偏关键词、晋升更快）。
 
-**TTL 与召回：** 过期且未 pin 的记忆会立刻从 `recall` 中消失，不必先 `consolidate`（consolidate 仍会真正删除它们）。
+**TTL 与召回：** 过期且未 pin 的记忆会立刻从 `recall` 中消失，不必先 `consolidate`（consolidate 仍会真正删除它们）。额外上限：`candidate_prune` 256、`scan_limit` 2048（`0` 表示不限制）。
+
+## 透明性能
+
+`open()` / `open_in_memory()` / `store.session("id")` 就该够快，不必再调一堆旋钮。
+
+**免费得到**
+
+- 打开文件库：WAL、`synchronous=NORMAL`、`foreign_keys=ON`、`temp_store=MEMORY`、约 16 MiB `cache_size`、5 秒 `busy_timeout`、预编译语句缓存
+- 进程内 embed LRU：相同文本 + embedding 维度不会重复计算（本进程内可跨项目共享向量字节；每次 remember 仍插入自己的行）
+- 召回：TTL 过滤、pin+新近 `scan_limit`、向量前按关键词/新近度剪枝、默认 `limit` 8
+- 单条 `remember` 与 `remember_many` 共用同一套单条事务辅助
+
+查看：`store.applied_pragmas()`。
+
+**你仍须自己调用**
+
+- 一轮里写多条时用 `remember_many` / `session.remember_turn`
+- **`consolidate`** — 不会在后台跑。TTL 只是隐藏过期未 pin 行；consolidate 负责删除并晋升
+
+```bash
+cargo bench   # 不在 cargo test 里；见 benches/memory_hot_path.rs
+```
+
+完整对照表：[ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md#5-透明性能你免费得到什么)。
 
 ## 项目隔离
 
