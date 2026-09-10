@@ -46,9 +46,13 @@ fn main() -> ai_memory::Result<()> {
             .with_tier(Tier::Working),
     ])?;
 
-    println!("\n== turn 2 (support-bot): prefetch + packed context before 'model' ==");
-    let hits = support.prefetch("theme and sidebar")?;
-    println!("{}", support.pack_context(&hits).render());
+    println!(
+        "\n== turn 2 (support-bot): budgeted pack before 'model' (not the full transcript) =="
+    );
+    let pack =
+        support.prefetch_within_budget("theme and sidebar", ai_memory::TokenBudget::new(256))?;
+    println!("{}", pack.render());
+    println!("pack tokens (chars/4)={} budget=256", pack.tokens);
     let rec = support.call_tool(TOOL_RECALL, json!({"text": "dark mode", "limit": 3}));
     println!("recall ok={} hits={}", rec.ok, rec.data["hits"]);
     let _ = support.call_tool(TOOL_CONSOLIDATE, json!({}));

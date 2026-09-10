@@ -5,15 +5,19 @@ use serde_json::Value;
 use crate::error::{Error, Result};
 use crate::sqlite::SqliteStore;
 use crate::store::MemoryStore;
-use crate::types::{ConsolidateReport, Memory, RecallHit, RecallQuery, RememberRequest};
+use crate::types::{
+    ConsolidateReport, Memory, MemoryListFilter, RecallHit, RecallQuery, RememberRequest, Tier,
+};
 
+use super::compact::{CompactPlan, CompactReport, Compactor, ExtractiveCompactor};
 use super::context::ContextPack;
+use super::tokens::{prefetch_hit_limit, CharsPer4, TokenBudget, TokenEstimator};
 use super::tools::{dispatch_tool, memory_tool_specs, ToolResponse, ToolSpec};
 
 /// Project-scoped session for one agent in a harness loop.
 ///
-/// Typical turn: [`Self::prefetch`] → [`Self::pack_context`] → model call →
-/// [`Self::call_tool`] for each tool use → optional [`Self::end_turn_consolidate`].
+/// Typical turn: persist notes → [`Self::prefetch_within_budget`] → model call →
+/// [`Self::call_tool`] → optional [`Self::compact_working`] / [`Self::end_turn_consolidate`].
 #[derive(Clone)]
 pub struct AgentSession {
     store: Arc<dyn MemoryStore>,
@@ -62,7 +66,7 @@ impl AgentSession {
         memory_tool_specs()
     }
 
-    /// Recall before the model call.
+    /// Recall before the model call (unbounded pack — you still choose `limit`).
     pub fn prefetch(&self, query: impl AsRef<str>) -> Result<Vec<RecallHit>> {
         self.prefetch_query(RecallQuery::new(query.as_ref()))
     }
@@ -75,12 +79,91 @@ impl AgentSession {
         ContextPack::from_hits(&self.project_id, hits)
     }
 
+    /// Recall extra candidates, then pack to `budget` (default estimator: chars/4).
+    pub fn prefetch_within_budget(
+        &self,
+        query: impl AsRef<str>,
+        budget: TokenBudget,
+    ) -> Result<ContextPack> {
+        self.prefetch_within_budget_with(query, budget, &CharsPer4)
+    }
+
+    pub fn prefetch_within_budget_with(
+        &self,
+        query: impl AsRef<str>,
+        budget: TokenBudget,
+        estimator: &dyn TokenEstimator,
+    ) -> Result<ContextPack> {
+        let limit = prefetch_hit_limit(budget.max_tokens);
+        let hits = self.prefetch_query(RecallQuery::new(query.as_ref()).with_limit(limit))?;
+        Ok(self.pack_context_budgeted_with(&hits, budget, estimator))
+    }
+
+    pub fn pack_context_budgeted(&self, hits: &[RecallHit], budget: TokenBudget) -> ContextPack {
+        self.pack_context_budgeted_with(hits, budget, &CharsPer4)
+    }
+
+    pub fn pack_context_budgeted_with(
+        &self,
+        hits: &[RecallHit],
+        budget: TokenBudget,
+        estimator: &dyn TokenEstimator,
+    ) -> ContextPack {
+        ContextPack::from_hits_budgeted(&self.project_id, hits, budget, estimator)
+    }
+
     pub fn remember_turn(
         &self,
         items: impl IntoIterator<Item = RememberRequest>,
     ) -> Result<Vec<Memory>> {
         self.store
             .remember_many(&self.project_id, items.into_iter().collect())
+    }
+
+    /// Fold older unpinned working rows into one extractive episodic note.
+    /// Does **not** call consolidate. Default: [`ExtractiveCompactor`].
+    pub fn compact_working(&self) -> Result<CompactReport> {
+        self.compact_working_with(&ExtractiveCompactor::default())
+    }
+
+    pub fn compact_working_with(&self, compactor: &dyn Compactor) -> Result<CompactReport> {
+        let working = self.store.list_memories_filtered(
+            &self.project_id,
+            MemoryListFilter::new().with_tiers(vec![Tier::Working]),
+        )?;
+        let CompactPlan { keep_ids, fold } = compactor.plan(&working);
+        if fold.is_empty() {
+            return Ok(CompactReport {
+                kept_working: keep_ids.len(),
+                folded_working: 0,
+                forgotten_working: 0,
+                episodic_id: None,
+            });
+        }
+
+        let n_fold = fold.len();
+        let text = compactor
+            .folded_text(&fold)
+            .unwrap_or_else(|| "Folded working notes (extractive):".into());
+        let source_ids: Vec<String> = fold.iter().map(|m| m.id.clone()).collect();
+        let episodic = self.store.remember(
+            &self.project_id,
+            RememberRequest::new(text)
+                .with_tier(Tier::Episodic)
+                .with_metadata(serde_json::json!({
+                    "compacted": true,
+                    "source_ids": source_ids,
+                })),
+        )?;
+        for id in &source_ids {
+            self.store.forget(&self.project_id, id)?;
+        }
+        Ok(CompactReport {
+            kept_working: keep_ids.len(),
+            folded_working: n_fold,
+            forgotten_working: n_fold,
+            episodic_id: Some(episodic.id),
+        })
     }
 
     pub fn end_turn_consolidate(&self) -> Result<ConsolidateReport> {

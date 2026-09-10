@@ -19,8 +19,9 @@ mod sqlite_vec_index;
 pub use embedder::{Embedder, HashEmbedder};
 pub use error::{Error, Result};
 pub use harness::{
-    memory_tool_specs, AgentSession, ContextBlock, ContextPack, ToolResponse, ToolSpec,
-    TOOL_CONSOLIDATE, TOOL_FORGET, TOOL_PIN, TOOL_RECALL, TOOL_REMEMBER,
+    memory_tool_specs, AgentSession, CharsPer4, CompactPlan, CompactReport, Compactor,
+    ContextBlock, ContextPack, ExtractiveCompactor, TokenBudget, TokenEstimator, ToolResponse,
+    ToolSpec, TOOL_CONSOLIDATE, TOOL_FORGET, TOOL_PIN, TOOL_RECALL, TOOL_REMEMBER,
 };
 pub use heuristic::infer_tier;
 pub use policy::{MemoryPolicy, PromotePolicy, RecallWeights, RetentionPolicy};
