@@ -46,16 +46,19 @@ fn embed_cache_skips_duplicate_text() {
     store.create_project("b", MemoryPolicy::default()).unwrap();
 
     let text = "shared cacheable sentence about linen";
-    store.remember("a", RememberRequest::new(text)).unwrap();
+    let a_row = store.remember("a", RememberRequest::new(text)).unwrap();
     let after_first = counter.hits.load(Ordering::SeqCst);
     assert_eq!(after_first, 1);
 
-    store.remember("b", RememberRequest::new(text)).unwrap();
+    let b_row = store.remember("b", RememberRequest::new(text)).unwrap();
     assert_eq!(
         counter.hits.load(Ordering::SeqCst),
         1,
         "identical text+dim must reuse the in-process embed cache across projects"
     );
+    assert_ne!(a_row.id, b_row.id);
+    assert_eq!(store.list_memories("a").unwrap().len(), 1);
+    assert_eq!(store.list_memories("b").unwrap().len(), 1);
 
     store
         .recall("a", RecallQuery::new(text).with_limit(3))
@@ -99,6 +102,7 @@ fn open_file_applies_wal_and_normal_sync() {
     assert_eq!(p.journal_mode.to_ascii_lowercase(), "wal");
     assert_eq!(p.synchronous, 1, "NORMAL");
     assert_eq!(p.temp_store, 2);
+    assert_eq!(p.cache_size, -16384);
     assert_eq!(p.busy_timeout_ms, 5000);
     drop(store);
     let _ = std::fs::remove_file(&path);
