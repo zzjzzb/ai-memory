@@ -170,6 +170,23 @@ pub(crate) fn recency_score(age: Duration, half_life: Duration) -> f32 {
     ((-a / hl) * std::f64::consts::LN_2).exp() as f32
 }
 
+/// True when retention TTL has elapsed and the row is not pin-protected.
+pub(crate) fn memory_expired(
+    policy: &MemoryPolicy,
+    pinned: bool,
+    tier: crate::types::Tier,
+    created_at: std::time::SystemTime,
+    now: std::time::SystemTime,
+) -> bool {
+    if pinned && policy.promote.pinned_skip_expiry {
+        return false;
+    }
+    match policy.retention.ttl(tier) {
+        Some(ttl) => now.duration_since(created_at).unwrap_or(Duration::ZERO) >= ttl,
+        None => false,
+    }
+}
+
 pub(crate) fn keyword_score(query_tokens: &[String], doc_tokens: &[String]) -> f32 {
     if query_tokens.is_empty() {
         return 0.0;

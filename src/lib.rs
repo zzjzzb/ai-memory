@@ -11,6 +11,9 @@ mod types;
 mod util;
 mod vector;
 
+#[cfg(feature = "sqlite-vec")]
+mod sqlite_vec_index;
+
 pub use embedder::{Embedder, HashEmbedder};
 pub use error::{Error, Result};
 pub use heuristic::infer_tier;
@@ -18,18 +21,36 @@ pub use policy::{MemoryPolicy, PromotePolicy, RecallWeights, RetentionPolicy};
 pub use sqlite::{SqliteStore, SqliteStoreBuilder};
 pub use store::{MemoryStore, ProjectHandle};
 pub use types::{
-    ConsolidateReport, Memory, Project, RecallHit, RecallQuery, RememberRequest, Tier,
+    ConsolidateReport, Memory, MemoryListFilter, Project, RecallHit, RecallQuery, RememberRequest,
+    Tier,
 };
 pub use vector::{cosine, BruteForceCosine, VectorIndex};
 
-use std::path::Path;
+#[cfg(feature = "sqlite-vec")]
+pub use sqlite_vec_index::SqliteVecIndex;
 
-/// Open or create a local SQLite store at `path`.
+use std::path::Path;
+use std::sync::Arc;
+
+/// Open or create a local SQLite store at `path` (default [`HashEmbedder`]).
 pub fn open(path: impl AsRef<Path>) -> Result<SqliteStore> {
     SqliteStore::open(path)
+}
+
+/// Open or create a local store and inject an [`Embedder`].
+pub fn open_with_embedder(
+    path: impl AsRef<Path>,
+    embedder: Arc<dyn Embedder>,
+) -> Result<SqliteStore> {
+    SqliteStore::open_with_embedder(path, embedder)
 }
 
 /// Open an in-memory store (tests / scratch).
 pub fn open_in_memory() -> Result<SqliteStore> {
     SqliteStore::open_in_memory()
+}
+
+/// In-memory store with an explicit [`Embedder`].
+pub fn open_in_memory_with_embedder(embedder: Arc<dyn Embedder>) -> Result<SqliteStore> {
+    SqliteStore::open_in_memory_with_embedder(embedder)
 }

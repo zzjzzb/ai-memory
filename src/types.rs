@@ -169,6 +169,63 @@ pub struct RecallHit {
     pub vector_score: f32,
 }
 
+/// Filters for [`crate::store::MemoryStore::list_memories_filtered`].
+///
+/// Default: all tiers, no time window, exclude expired unpinned rows.
+#[derive(Clone, Debug, Default)]
+pub struct MemoryListFilter {
+    pub tiers: Option<Vec<Tier>>,
+    pub since: Option<SystemTime>,
+    pub until: Option<SystemTime>,
+    /// `Some(true)` = pinned only, `Some(false)` = unpinned only, `None` = both.
+    pub pinned: Option<bool>,
+    /// When false (default), rows past the project's retention TTL are omitted
+    /// unless pin-protected — matching recall.
+    pub include_expired: bool,
+    pub limit: Option<usize>,
+}
+
+impl MemoryListFilter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_tiers(mut self, tiers: Vec<Tier>) -> Self {
+        self.tiers = Some(tiers);
+        self
+    }
+
+    pub fn with_since(mut self, since: SystemTime) -> Self {
+        self.since = Some(since);
+        self
+    }
+
+    pub fn with_until(mut self, until: SystemTime) -> Self {
+        self.until = Some(until);
+        self
+    }
+
+    pub fn pinned_only(mut self) -> Self {
+        self.pinned = Some(true);
+        self
+    }
+
+    pub fn unpinned_only(mut self) -> Self {
+        self.pinned = Some(false);
+        self
+    }
+
+    pub fn including_expired(mut self) -> Self {
+        self.include_expired = true;
+        self
+    }
+
+    pub fn with_limit(mut self, limit: usize) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+}
+
 /// Outcome of [`crate::store::MemoryStore::consolidate`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ConsolidateReport {
