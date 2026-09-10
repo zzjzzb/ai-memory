@@ -1,10 +1,10 @@
 # Using ai-memory
 
-English usage guide. 中文版：[USAGE.zh-CN.md](USAGE.zh-CN.md)
+English usage guide. 中文版：[USAGE.zh-CN.md](USAGE.zh-CN.md) · Architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
 
 `ai-memory` is a **local** Rust library for personal AI memory: short-lived working notes, episodic event logs, and durable profile facts. One **Rust + SQLite** kernel serves every project. Projects differ by [`MemoryPolicy`](#memorypolicy), not by storage engines.
 
-It is **not** a cloud service, sync product, or multi-language SDK (yet).
+It sits **under** an agent harness (pi, Claude-like, Codex-like, DeepSeek-like): you keep the model loop; this crate stores and recalls memory. It is **not** a cloud service, sync product, multi-language SDK, or full LLM harness.
 
 ## Problems it solves
 
@@ -29,6 +29,8 @@ It is **not** a cloud service, sync product, or multi-language SDK (yet).
 - `consolidate`: expire unpinned rows, working→episodic→profile
 - Inject [`Embedder`](#embedder) and [`VectorIndex`](#vectors) on open
 - Optional Cargo feature `sqlite-vec` (not default)
+- [`AgentSession`](#harness-adapter) + JSON tool specs for generic tool-calling loops
+- `remember_many` in one SQLite transaction
 
 Non-goals: sync, server, multi-tenant cloud, FFI bindings, Lance backend, network embedding APIs as the default.
 
@@ -70,7 +72,34 @@ Examples:
 ```bash
 cargo run --example two_projects
 cargo run --example assistant_sim
+cargo run --example harness_loop_sim
 ```
+
+## Harness adapter
+
+For SME agents that already have a tool loop (pi, Claude-like, Codex-like, DeepSeek-like). Full diagrams: [ARCHITECTURE.md](ARCHITECTURE.md).
+
+```rust
+use ai_memory::{memory_tool_specs, AgentSession, MemoryPolicy, SqliteStore, TOOL_RECALL};
+use serde_json::json;
+
+let store = SqliteStore::open("./memory.db")?;
+store.create_project("support-bot", MemoryPolicy::chat())?;
+let session = AgentSession::sqlite(store, "support-bot")?;
+
+// Register with the harness (same JSON Schema, two envelopes)
+let tools = memory_tool_specs();
+let _openai = tools.iter().map(|t| t.openai_tool());
+let _anthropic = tools.iter().map(|t| t.anthropic_tool());
+
+let hits = session.prefetch("user question")?;
+let system = session.pack_context(&hits).render(); // cites id / tier / score
+
+let result = session.call_tool(TOOL_RECALL, json!({"text": "theme", "limit": 5}));
+session.end_turn_consolidate()?;
+```
+
+Tool names: `memory_remember`, `memory_recall`, `memory_forget`, `memory_pin`, `memory_consolidate`. `call_tool` never panics; failures set `ok: false` and `error`. Batch writes: `remember_many` / `session.remember_turn`. File stores use WAL + `busy_timeout`; this process is a **single writer** (`Mutex<Connection>`).
 
 ## API tour
 

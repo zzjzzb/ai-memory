@@ -1,10 +1,10 @@
 # 使用 ai-memory
 
-简体中文使用说明。English: [USAGE.md](USAGE.md)
+简体中文使用说明。English: [USAGE.md](USAGE.md) · 架构：[ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md)
 
 `ai-memory` 是一个**本地** Rust 库，用来给个人 AI 存记忆：短暂的 working 笔记、按天/事件的 episodic 日志、长期的 profile 事实。所有项目共用同一套 **Rust + SQLite** 内核，差异只在 [`MemoryPolicy`](#memorypolicy)，而不是换存储引擎。
 
-它**不是**云服务、同步产品，也尚未提供多语言 FFI。
+它放在 agent 编排层**下面**（pi、Claude-like、Codex-like、DeepSeek-like）：模型循环仍由你负责，本库只存和召回记忆。它**不是**云服务、同步产品、多语言 SDK，也不是完整 LLM harness。
 
 ## 能解决什么问题
 
@@ -29,6 +29,8 @@
 - `consolidate`：过期未 pin 记录，working→episodic→profile
 - 打开时注入 [`Embedder`](#embedder) 与 [`VectorIndex`](#向量)
 - 可选 Cargo feature `sqlite-vec`（默认关闭）
+- [`AgentSession`](#编排适配层) + JSON 工具描述，接到通用 tool-calling 循环
+- `remember_many` 单事务批量写入
 
 非目标：同步、服务端、多租户云、FFI 绑定、Lance 后端、默认走网络 Embedding API。
 
@@ -70,7 +72,33 @@ fn main() -> ai_memory::Result<()> {
 ```bash
 cargo run --example two_projects
 cargo run --example assistant_sim
+cargo run --example harness_loop_sim
 ```
+
+## 编排适配层
+
+给已经有工具循环的中小团队 agent（pi、Claude-like、Codex-like、DeepSeek-like）。完整图见 [ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md)。
+
+```rust
+use ai_memory::{memory_tool_specs, AgentSession, MemoryPolicy, SqliteStore, TOOL_RECALL};
+use serde_json::json;
+
+let store = SqliteStore::open("./memory.db")?;
+store.create_project("support-bot", MemoryPolicy::chat())?;
+let session = AgentSession::sqlite(store, "support-bot")?;
+
+let tools = memory_tool_specs();
+let _openai = tools.iter().map(|t| t.openai_tool());
+let _anthropic = tools.iter().map(|t| t.anthropic_tool());
+
+let hits = session.prefetch("用户问题")?;
+let system = session.pack_context(&hits).render();
+
+let result = session.call_tool(TOOL_RECALL, json!({"text": "主题", "limit": 5}));
+session.end_turn_consolidate()?;
+```
+
+工具名：`memory_remember`、`memory_recall`、`memory_forget`、`memory_pin`、`memory_consolidate`。`call_tool` 不 panic，失败时 `ok: false`。批量写入用 `remember_many` / `session.remember_turn`。文件库启用 WAL + `busy_timeout`；本进程是**单写者**（`Mutex<Connection>`）。
 
 ## API 导览
 
