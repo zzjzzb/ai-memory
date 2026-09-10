@@ -95,36 +95,67 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    Open[打开文件库] --> WAL[PRAGMA journal_mode=WAL]
-    WAL --> Busy[busy_timeout 5s]
-    Busy --> Sync[synchronous=NORMAL]
-    Remember[remember_many] --> Tx[单次 SQLite 事务]
-    Recall[recall] --> SQL[SQL：项目 + 时间 + 层级]
+    Open[open / AgentSession] --> P[PRAGMA：WAL NORMAL FK temp_store cache_size busy_timeout]
+    P --> Stmt[预编译语句缓存]
+    Remember[remember / remember_many] --> LRU[进程内 embed LRU]
+    Recall[recall] --> LRU
+    LRU --> Tx[单次 SQLite 事务]
+    Recall --> SQL[SQL：项目 + 时间 + 层级，pin+新近优先，scan_limit]
     SQL --> TTL[丢掉过期未 pin]
-    TTL --> Prune[关键词 + 新近度廉价剪枝]
-    Prune --> Blobs[仅为幸存者加载 embedding blob]
+    TTL --> Prune[关键词 + 新近度廉价剪枝，保留 pin]
+    Prune --> Blobs[一次 IN 查询加载 embedding blob]
     Blobs --> VI[VectorIndex.similar]
     VI --> Rank[混合打分 + top-k]
-    EmbInj[注入 Embedder] --> Remember
-    EmbInj --> Recall
-    VecInj[注入 VectorIndex / sqlite-vec] --> VI
 ```
 
-- 文件库启用 **WAL + busy_timeout**。进程内由 `Mutex<Connection>` 串行，**单写者**。WAL 仍方便其他进程读同一文件。
-- **批量写入：** `remember_many` / `AgentSession::remember_turn` 先校验并 embedding，再在一个事务里插入（任一项非法则整批不提交）。
-- **候选剪枝：** 先按关键词 + 新近度，再算向量；`MemoryPolicy.recall.candidate_prune`（默认 256，`0` 关闭）或 `RecallQuery::with_candidate_limit`。
-- **可注入** `Embedder` 与 `VectorIndex`。默认暴力余弦；`--features sqlite-vec` 使用 `SqliteVecIndex`。
+细节见 [透明性能](#5-透明性能你免费得到什么)。
+
+## 5. 透明性能：你免费得到什么
+
+给中小团队接 pi / Claude-like / Codex-like 编排时，性能应尽量看不见。调用 `open("./memory.db")` 和 `store.session("project")` 就已经走快路径，不必调一堆旋钮。
+
+**免费得到（不用另调 API）：**
+
+| 默认 | 作用 |
+|------|------|
+| WAL + `synchronous=NORMAL` | 文件库；本地 agent 库足够安全 |
+| `busy_timeout` 5s | 文件被锁时等待，而不是立刻失败 |
+| `foreign_keys=ON` | 删项目时级联记忆和向量 |
+| `temp_store=MEMORY` | 排序/临时表在内存 |
+| `cache_size` ≈ 16 MiB | 页缓存（`PRAGMA cache_size=-16384`） |
+| 语句缓存 | 热路径 `remember` / `recall` / `get` 复用预编译 SQL |
+| Embed LRU（2048） | 同一进程里相同文本 + embedding 维度不重复哈希。向量字节可跨项目共享；每次 `remember` 仍写自己的记忆行 |
+| `scan_limit` 2048 | 召回先扫 pin，再扫新近行 |
+| `candidate_prune` 256 | 向量打分前按关键词 + 新近度裁剪；pin 行保留 |
+| `RecallQuery` limit 8 | 直接 `recall("...")` 也只取一小段 top-k |
+| 进程内单写者 | `Mutex<Connection>` |
+
+用 `store.applied_pragmas()` 查看。Session 继承同一个 store（同一套 PRAGMA、同一份 embed 缓存）：`store.session("support-bot")` 或 `AgentSession::attach`。
+
+**写入快路径请主动用：** 一轮笔记用 `remember_many` / `AgentSession::remember_turn`（一个事务）。单条 `remember` 已经走同一套事务辅助，API 不变。
+
+**你仍须自己调用：** `consolidate`（或 `end_turn_consolidate` / `memory_consolidate` 工具）。本库**不会**在后台自动 consolidate。TTL 已让过期未 pin 行从召回中消失；consolidate 负责真正删除并晋升层级。在你想做的时候调用——通常是回合结束，或你自己的定时任务。
+
+**明确不做：** 静默改政策、默认走网络 Embedding、自动 consolidate、把本库做成 LLM harness。
+
+微基准（**不**在默认 `cargo test` 里）：
+
+```bash
+cargo bench
+```
+
+见 `benches/memory_hot_path.rs`（单条 remember、批量 vs 循环、已填充库上的 recall）。
 
 ## 接到通用 tool-calling 循环
 
 不绑厂商 SDK。注册 JSON Schema，然后按回合驱动：
 
 ```rust
-use ai_memory::{memory_tool_specs, AgentSession, SqliteStore};
+use ai_memory::{memory_tool_specs, SqliteStore};
 
 let store = SqliteStore::open("./memory.db")?;
 store.create_project("support-bot", ai_memory::MemoryPolicy::chat())?;
-let session = AgentSession::sqlite(store, "support-bot")?;
+let session = store.session("support-bot")?;
 
 let tools = memory_tool_specs();
 let _openai = tools.iter().map(|t| t.openai_tool()).collect::<Vec<_>>();

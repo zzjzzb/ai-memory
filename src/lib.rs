@@ -1,6 +1,7 @@
 //! Personal AI memory semantic layer: working / episodic / profile,
 //! hybrid recall, and per-project [`MemoryPolicy`] on a single SQLite kernel.
 
+mod embed_cache;
 mod embedder;
 mod error;
 pub mod harness;
@@ -23,7 +24,7 @@ pub use harness::{
 };
 pub use heuristic::infer_tier;
 pub use policy::{MemoryPolicy, PromotePolicy, RecallWeights, RetentionPolicy};
-pub use sqlite::{SqliteStore, SqliteStoreBuilder};
+pub use sqlite::{AppliedPragmas, SqliteStore, SqliteStoreBuilder};
 pub use store::{MemoryStore, ProjectHandle};
 pub use types::{
     ConsolidateReport, Memory, MemoryListFilter, Project, RecallHit, RecallQuery, RememberRequest,
@@ -38,6 +39,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 /// Open or create a local SQLite store at `path` (default [`HashEmbedder`]).
+///
+/// Applies file-store PRAGMAs automatically (WAL, `synchronous=NORMAL`,
+/// `foreign_keys=ON`, `temp_store=MEMORY`, ~16 MiB `cache_size`, 5s busy
+/// timeout). See [`SqliteStore::applied_pragmas`].
 pub fn open(path: impl AsRef<Path>) -> Result<SqliteStore> {
     SqliteStore::open(path)
 }

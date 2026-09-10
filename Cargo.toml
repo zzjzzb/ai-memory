@@ -16,8 +16,19 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlite-vec = { version = "=0.1.6", optional = true }
 
+[dev-dependencies]
+# Not part of `cargo test`. Pin transitive crates that otherwise resolve to
+# rustc 1.90+ / edition 2024 on a 1.83 toolchain.
+criterion = { version = "=0.4.0", default-features = false }
+textwrap = { version = "=0.16.1", default-features = false }
+smawk = "=0.3.2"
+
 [features]
 default = []
 # Optional sqlite-vec VectorIndex (compiles the C extension). Default recall
 # still uses in-crate BruteForceCosine unless you inject SqliteVecIndex.
 sqlite-vec = ["dep:sqlite-vec"]
+
+[[bench]]
+name = "memory_hot_path"
+harness = false

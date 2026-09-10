@@ -10,8 +10,8 @@
 use std::sync::Arc;
 
 use ai_memory::{
-    memory_tool_specs, open_in_memory_with_embedder, AgentSession, HashEmbedder, MemoryPolicy,
-    MemoryStore, RememberRequest, Tier, TOOL_CONSOLIDATE, TOOL_RECALL, TOOL_REMEMBER,
+    memory_tool_specs, open_in_memory_with_embedder, HashEmbedder, MemoryPolicy, MemoryStore,
+    RememberRequest, Tier, TOOL_CONSOLIDATE, TOOL_RECALL, TOOL_REMEMBER,
 };
 use serde_json::json;
 
@@ -20,8 +20,8 @@ fn main() -> ai_memory::Result<()> {
     store.create_project("support-bot", MemoryPolicy::chat())?;
     store.create_project("journal", MemoryPolicy::journal())?;
 
-    let support = AgentSession::sqlite(store.clone(), "support-bot")?;
-    let journal = AgentSession::sqlite(store, "journal")?;
+    let support = store.session("support-bot")?;
+    let journal = store.session("journal")?;
 
     println!("== register tools with your harness ==");
     for spec in memory_tool_specs() {

@@ -110,6 +110,9 @@ pub struct RecallWeights {
     /// Max candidates scored by [`crate::vector::VectorIndex`]. `0` disables prune.
     #[serde(default = "default_candidate_prune")]
     pub candidate_prune: usize,
+    /// Max live rows considered before prune (recent + pinned first). `0` = no cap.
+    #[serde(default = "default_scan_limit")]
+    pub scan_limit: usize,
 }
 
 impl Default for RecallWeights {
@@ -120,12 +123,17 @@ impl Default for RecallWeights {
             vector: 0.40,
             time_half_life: Duration::from_secs(7 * 24 * 60 * 60),
             candidate_prune: default_candidate_prune(),
+            scan_limit: default_scan_limit(),
         }
     }
 }
 
 fn default_candidate_prune() -> usize {
     256
+}
+
+fn default_scan_limit() -> usize {
+    2048
 }
 
 impl RecallWeights {

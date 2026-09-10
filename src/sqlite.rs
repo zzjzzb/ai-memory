@@ -1,9 +1,11 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
+use crate::embed_cache::CachedEmbedder;
 use crate::embedder::{Embedder, HashEmbedder};
 use crate::error::{Error, Result};
 use crate::heuristic::infer_tier;
@@ -75,21 +77,15 @@ impl SqliteStoreBuilder {
             }
             None => Connection::open_in_memory()?,
         };
-        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-        conn.busy_timeout(Duration::from_millis(5_000))?;
-        if self.path.is_some() {
-            conn.execute_batch(
-                "PRAGMA journal_mode = WAL;
-                 PRAGMA synchronous = NORMAL;",
-            )?;
-        }
+        apply_runtime_pragmas(&conn, self.path.is_some())?;
         init_schema(&conn)?;
+        let raw = self
+            .embedder
+            .unwrap_or_else(|| Arc::new(HashEmbedder::default()));
         Ok(SqliteStore {
             inner: Arc::new(Inner {
                 conn: Mutex::new(conn),
-                embedder: self
-                    .embedder
-                    .unwrap_or_else(|| Arc::new(HashEmbedder::default())),
+                embedder: Arc::new(CachedEmbedder::wrap(raw)),
                 vectors: self.vectors.unwrap_or_else(|| Arc::new(BruteForceCosine)),
             }),
         })
@@ -101,6 +97,7 @@ impl SqliteStore {
         SqliteStoreBuilder::default()
     }
 
+    /// Open or create a file-backed store. Same PRAGMAs as [`crate::open`].
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         Self::builder().path(path).build()
     }
@@ -117,7 +114,20 @@ impl SqliteStore {
         Self::builder().in_memory().embedder(embedder).build()
     }
 
-    /// Embedder used for `remember` / `recall` on this store.
+    /// PRAGMAs applied automatically by [`SqliteStore::open`] / [`open`](crate::open).
+    pub fn applied_pragmas(&self) -> Result<AppliedPragmas> {
+        let conn = self.lock()?;
+        Ok(AppliedPragmas {
+            foreign_keys: pragma_i64(&conn, "foreign_keys")? != 0,
+            journal_mode: pragma_text(&conn, "journal_mode")?,
+            synchronous: pragma_i64(&conn, "synchronous")?,
+            temp_store: pragma_i64(&conn, "temp_store")?,
+            cache_size: pragma_i64(&conn, "cache_size")?,
+            busy_timeout_ms: pragma_i64(&conn, "busy_timeout")?,
+        })
+    }
+
+    /// Embedder used for `remember` / `recall` (process LRU wrapper around the injected impl).
     pub fn embedder(&self) -> Arc<dyn Embedder> {
         Arc::clone(&self.inner.embedder)
     }
@@ -135,12 +145,9 @@ impl SqliteStore {
     }
 
     fn require_project(conn: &Connection, project_id: &str) -> Result<()> {
-        let exists: Option<i64> = conn
-            .query_row(
-                "SELECT 1 FROM projects WHERE id = ?1",
-                params![project_id],
-                |row| row.get(0),
-            )
+        let mut stmt = conn.prepare_cached("SELECT 1 FROM projects WHERE id = ?1")?;
+        let exists: Option<i64> = stmt
+            .query_row(params![project_id], |row| row.get(0))
             .optional()?;
         if exists.is_none() {
             Err(Error::ProjectNotFound(project_id.to_string()))
@@ -150,12 +157,9 @@ impl SqliteStore {
     }
 
     fn load_policy(conn: &Connection, project_id: &str) -> Result<MemoryPolicy> {
-        let json: String = conn
-            .query_row(
-                "SELECT policy_json FROM projects WHERE id = ?1",
-                params![project_id],
-                |row| row.get(0),
-            )
+        let mut stmt = conn.prepare_cached("SELECT policy_json FROM projects WHERE id = ?1")?;
+        let json: String = stmt
+            .query_row(params![project_id], |row| row.get(0))
             .optional()?
             .ok_or_else(|| Error::ProjectNotFound(project_id.to_string()))?;
         Ok(serde_json::from_str(&json)?)
@@ -304,18 +308,23 @@ impl MemoryStore for SqliteStore {
         let tx = conn.transaction()?;
         let now = now_ms();
         let mut out = Vec::with_capacity(prepared.len());
-        for item in prepared {
-            let id = new_id();
-            let metadata_json = match &item.metadata {
-                Some(v) => Some(serde_json::to_string(v)?),
-                None => None,
-            };
-            tx.execute(
+        {
+            let mut ins_mem = tx.prepare_cached(
                 "INSERT INTO memories (
                     id, project_id, tier, text, metadata_json,
                     created_at, updated_at, last_accessed_at, access_count, pinned
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, 0, 0)",
-                params![
+            )?;
+            let mut ins_emb = tx.prepare_cached(
+                "INSERT INTO embeddings (memory_id, dim, vector) VALUES (?1, ?2, ?3)",
+            )?;
+            for item in prepared {
+                let id = new_id();
+                let metadata_json = match &item.metadata {
+                    Some(v) => Some(serde_json::to_string(v)?),
+                    None => None,
+                };
+                ins_mem.execute(params![
                     id,
                     project_id,
                     item.tier.as_str(),
@@ -323,28 +332,25 @@ impl MemoryStore for SqliteStore {
                     metadata_json,
                     now,
                     now
-                ],
-            )?;
-            tx.execute(
-                "INSERT INTO embeddings (memory_id, dim, vector) VALUES (?1, ?2, ?3)",
-                params![
+                ])?;
+                ins_emb.execute(params![
                     id,
                     item.embedding.len() as i64,
                     vec_to_blob(&item.embedding)
-                ],
-            )?;
-            out.push(Memory {
-                id,
-                project_id: project_id.to_string(),
-                tier: item.tier,
-                text: item.text,
-                metadata: item.metadata,
-                created_at: ms_to_time(now),
-                updated_at: ms_to_time(now),
-                last_accessed_at: None,
-                access_count: 0,
-                pinned: false,
-            });
+                ])?;
+                out.push(Memory {
+                    id,
+                    project_id: project_id.to_string(),
+                    tier: item.tier,
+                    text: item.text,
+                    metadata: item.metadata,
+                    created_at: ms_to_time(now),
+                    updated_at: ms_to_time(now),
+                    last_accessed_at: None,
+                    access_count: 0,
+                    pinned: false,
+                });
+            }
         }
         tx.commit()?;
         Ok(out)
@@ -353,14 +359,13 @@ impl MemoryStore for SqliteStore {
     fn get(&self, project_id: &str, memory_id: &str) -> Result<Option<Memory>> {
         let conn = self.lock()?;
         Self::require_project(&conn, project_id)?;
-        let mem = conn
-            .query_row(
-                "SELECT id, project_id, tier, text, metadata_json, created_at, updated_at,
-                        last_accessed_at, access_count, pinned
-                 FROM memories WHERE project_id = ?1 AND id = ?2",
-                params![project_id, memory_id],
-                map_memory,
-            )
+        let mut stmt = conn.prepare_cached(
+            "SELECT id, project_id, tier, text, metadata_json, created_at, updated_at,
+                    last_accessed_at, access_count, pinned
+             FROM memories WHERE project_id = ?1 AND id = ?2",
+        )?;
+        let mem = stmt
+            .query_row(params![project_id, memory_id], map_memory)
             .optional()?;
         Ok(mem)
     }
@@ -498,8 +503,14 @@ impl MemoryStore for SqliteStore {
             }
             sql.push(')');
         }
+        sql.push_str(" ORDER BY m.pinned DESC, m.created_at DESC");
+        let scan = policy.recall.scan_limit;
+        if scan > 0 {
+            sql.push_str(" LIMIT ?");
+            bind.push((scan as i64).into());
+        }
 
-        let mut stmt = conn.prepare(&sql)?;
+        let mut stmt = conn.prepare_cached(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(bind.iter()), map_memory)?;
 
         let now = SystemTime::now();
@@ -519,31 +530,35 @@ impl MemoryStore for SqliteStore {
             .unwrap_or(policy.recall.candidate_prune);
         if prune > 0 && live.len() > prune {
             live.sort_by(|a, b| {
-                let cheap = |m: &Memory| {
-                    let age = now
-                        .duration_since(m.created_at)
-                        .unwrap_or(Duration::from_secs(0));
-                    let kw = keyword_score(&q_tokens, &tokenize(&m.text));
-                    let ts = recency_score(age, policy.recall.time_half_life);
-                    kw + ts
-                };
-                cheap(b)
-                    .partial_cmp(&cheap(a))
-                    .unwrap_or(std::cmp::Ordering::Equal)
+                // Pinned rows stay in the candidate set (TTL already applied).
+                b.pinned.cmp(&a.pinned).then_with(|| {
+                    let cheap = |m: &Memory| {
+                        let age = now
+                            .duration_since(m.created_at)
+                            .unwrap_or(Duration::from_secs(0));
+                        let kw = keyword_score(&q_tokens, &tokenize(&m.text));
+                        let ts = recency_score(age, policy.recall.time_half_life);
+                        kw + ts
+                    };
+                    cheap(b)
+                        .partial_cmp(&cheap(a))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
             });
             live.truncate(prune);
         }
 
+        // Stable, insertion-like order for VectorIndex (hybrid ranking uses scores, not this order).
+        live.sort_by(|a, b| {
+            a.created_at
+                .cmp(&b.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+
         let mut candidates = Vec::with_capacity(live.len());
+        let blobs = load_embedding_blobs(&conn, live.iter().map(|m| m.id.as_str()))?;
         for memory in &live {
-            let blob: Option<Vec<u8>> = conn
-                .query_row(
-                    "SELECT vector FROM embeddings WHERE memory_id = ?1",
-                    params![memory.id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let vec = blob.and_then(|b| blob_to_vec(&b)).unwrap_or_default();
+            let vec = blobs.get(&memory.id).cloned().unwrap_or_default();
             candidates.push((memory.id.clone(), vec));
         }
 
@@ -584,15 +599,17 @@ impl MemoryStore for SqliteStore {
         hits.truncate(query.limit);
 
         let now_ms_val = now_ms();
-        for hit in &hits {
-            conn.execute(
+        {
+            let mut touch = conn.prepare_cached(
                 "UPDATE memories
                  SET access_count = access_count + 1,
                      last_accessed_at = ?1,
                      updated_at = ?1
                  WHERE project_id = ?2 AND id = ?3",
-                params![now_ms_val, project_id, hit.memory.id],
             )?;
+            for hit in &hits {
+                touch.execute(params![now_ms_val, project_id, hit.memory.id])?;
+            }
         }
 
         Ok(hits)
@@ -762,6 +779,8 @@ fn init_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project_id);
         CREATE INDEX IF NOT EXISTS idx_memories_project_tier ON memories(project_id, tier);
         CREATE INDEX IF NOT EXISTS idx_memories_project_created ON memories(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_memories_project_pinned_created
+            ON memories(project_id, pinned, created_at);
 
         CREATE TABLE IF NOT EXISTS embeddings (
             memory_id TEXT PRIMARY KEY,
@@ -772,4 +791,79 @@ fn init_schema(conn: &Connection) -> Result<()> {
         "#,
     )?;
     Ok(())
+}
+
+/// Values `open()` / `open_in_memory()` apply without extra knobs.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AppliedPragmas {
+    pub foreign_keys: bool,
+    pub journal_mode: String,
+    pub synchronous: i64,
+    pub temp_store: i64,
+    pub cache_size: i64,
+    pub busy_timeout_ms: i64,
+}
+
+/// ~16 MiB page cache (`PRAGMA cache_size` negative = KiB).
+const SQLITE_CACHE_SIZE: i64 = -16_384;
+const SQLITE_BUSY_TIMEOUT_MS: u64 = 5_000;
+const SQLITE_STMT_CACHE: usize = 64;
+
+fn apply_runtime_pragmas(conn: &Connection, file_backed: bool) -> Result<()> {
+    conn.execute_batch(&format!(
+        "PRAGMA foreign_keys = ON;
+         PRAGMA temp_store = MEMORY;
+         PRAGMA cache_size = {SQLITE_CACHE_SIZE};"
+    ))?;
+    conn.busy_timeout(Duration::from_millis(SQLITE_BUSY_TIMEOUT_MS))?;
+    conn.set_prepared_statement_cache_capacity(SQLITE_STMT_CACHE);
+    if file_backed {
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;",
+        )?;
+    }
+    Ok(())
+}
+
+fn pragma_i64(conn: &Connection, name: &str) -> Result<i64> {
+    let sql = format!("PRAGMA {name}");
+    Ok(conn.query_row(&sql, [], |row| row.get(0))?)
+}
+
+fn pragma_text(conn: &Connection, name: &str) -> Result<String> {
+    let sql = format!("PRAGMA {name}");
+    Ok(conn.query_row(&sql, [], |row| row.get(0))?)
+}
+
+fn load_embedding_blobs<'a>(
+    conn: &Connection,
+    ids: impl IntoIterator<Item = &'a str>,
+) -> Result<HashMap<String, Vec<f32>>> {
+    let ids: Vec<&str> = ids.into_iter().collect();
+    let mut out = HashMap::with_capacity(ids.len());
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    let mut sql = String::from("SELECT memory_id, vector FROM embeddings WHERE memory_id IN (");
+    for (i, _) in ids.iter().enumerate() {
+        if i > 0 {
+            sql.push(',');
+        }
+        sql.push('?');
+    }
+    sql.push(')');
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |row| {
+        let id: String = row.get(0)?;
+        let blob: Vec<u8> = row.get(1)?;
+        Ok((id, blob))
+    })?;
+    for row in rows {
+        let (id, blob) = row?;
+        if let Some(v) = blob_to_vec(&blob) {
+            out.insert(id, v);
+        }
+    }
+    Ok(out)
 }
