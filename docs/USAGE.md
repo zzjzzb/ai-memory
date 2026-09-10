@@ -1,40 +1,12 @@
 # Using ai-memory
 
-English usage guide. 中文版：[USAGE.zh-CN.md](USAGE.zh-CN.md) · Architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
+English. 中文：[USAGE.zh-CN.md](USAGE.zh-CN.md) · Architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
 
-`ai-memory` is a **local** Rust library for personal AI memory: short-lived working notes, episodic event logs, and durable profile facts. One **Rust + SQLite** kernel serves every project. Projects differ by [`MemoryPolicy`](#memorypolicy), not by storage engines.
+**What it is:** a local Rust + SQLite library that stores agent memory (working / episodic / profile) per **project**. Your harness (pi, Claude-like, Codex-like) still owns the model loop. This crate stores, recalls, and packs a **small** prompt slice.
 
-It sits **under** an agent harness (pi, Claude-like, Codex-like, DeepSeek-like): you keep the model loop; this crate stores and recalls memory. It is **not** a cloud service, sync product, multi-language SDK, or full LLM harness.
+**What it is not:** an LLM client, a 1M-token prompt dump, or a background job that consolidates for you.
 
-## Problems it solves
-
-| Scenario | What you do |
-|----------|-------------|
-| Chat assistant that should remember preferences | `remember` profile facts; `recall` before answering |
-| Journal / daily log, separate from chat | Second `project` id — recall cannot leak across projects |
-| Scratch notes that should fade | Working-tier TTL; expired unpinned rows are hidden from recall |
-| Important notes that must survive TTL | `pin` |
-| Promote session notes into longer-term memory | `consolidate` using that project's promote rules |
-| Tune ranking (recency vs keywords vs vectors) | Per-project recall weights |
-
-## Features
-
-- Open/create a local SQLite file (or in-memory)
-- Project CRUD: create, get, list, update policy, delete (cascades memories)
-- `remember` (text + optional metadata + optional tier; heuristic if omitted)
-- `get` by id (scoped to project), `list` with tier/time/pin/expiry filters
-- `pin` / `unpin` / `forget`
-- Hybrid `recall`: time window + keyword overlap + vector cosine, ranked scores
-- TTL/retention applies to **recall and default list**, not only `consolidate`
-- `consolidate`: expire unpinned rows, working→episodic→profile
-- Inject [`Embedder`](#embedder) and [`VectorIndex`](#vectors) on open
-- Optional Cargo feature `sqlite-vec` (not default)
-- [`AgentSession`](#harness-adapter) + JSON tool specs for generic tool-calling loops
-- `remember_many` in one SQLite transaction
-
-Non-goals: sync, server, multi-tenant cloud, FFI bindings, Lance backend, network embedding APIs as the default.
-
-## Quickstart
+## Minimal example
 
 ```toml
 [dependencies]
@@ -42,193 +14,126 @@ ai-memory = { git = "https://github.com/zzjzzb/ai-memory" }
 ```
 
 ```rust
-use std::time::Duration;
-use ai_memory::{open, MemoryPolicy, MemoryStore, RecallQuery, RememberRequest, Tier};
+use ai_memory::{open, MemoryPolicy, MemoryStore, RememberRequest, Tier, TokenBudget};
 
 fn main() -> ai_memory::Result<()> {
     let store = open("./memory.db")?;
+    store.create_project("support-bot", MemoryPolicy::chat())?;
+    let session = store.session("support-bot")?;
 
-    let mut policy = MemoryPolicy::default();
-    policy.recall.vector = 0.5;
-    policy.promote.working_to_episodic_after = Duration::from_secs(60 * 60);
-    store.create_project("my-app", policy)?;
-
-    let app = store.project("my-app")?;
-    app.remember(
+    // Persist the turn (do this as the session grows)
+    session.remember_turn([
         RememberRequest::new("User prefers dark mode").with_tier(Tier::Profile),
-    )?;
+        RememberRequest::new("Ticket: sidebar overlap on invoices").with_tier(Tier::Working),
+    ])?;
 
-    for hit in app.recall(RecallQuery::new("theme preference"))? {
-        println!("{:.3} [{}] {}", hit.score, hit.memory.tier, hit.memory.text);
-    }
+    // Before the model: a budgeted pack — not the whole transcript
+    let pack = session.prefetch_within_budget("sidebar invoices", TokenBudget::new(8_192))?;
+    let _system = pack.render(); // paste into your harness system prompt
 
-    app.consolidate()?;
+    // You still call these on purpose (never automatic)
+    session.compact_working()?;      // fold old working → one episodic note
+    session.end_turn_consolidate()?; // expire / promote by MemoryPolicy
     Ok(())
 }
 ```
 
-Examples:
-
 ```bash
-cargo run --example two_projects
-cargo run --example assistant_sim
 cargo run --example harness_loop_sim
+cargo run --example assistant_sim
+cargo run --example two_projects
 ```
 
-## Harness adapter
+`open()` already turns on WAL and other SQLite defaults. No extra knobs.
 
-For SME agents that already have a tool loop (pi, Claude-like, Codex-like, DeepSeek-like). Full diagrams: [ARCHITECTURE.md](ARCHITECTURE.md).
+## One long session, many tickets, transcript > ~1M tokens
+
+SME agents often stay in **one session** across related issues until the chat is larger than the model window (1M or much smaller).
+
+**You cannot fit that history into the next model call.** Store it; send a budgeted slice.
+
+| Do | Don't |
+|----|--------|
+| `remember` / `remember_turn` each turn into the project | Stuff the full transcript into the prompt |
+| `prefetch_within_budget(query, TokenBudget { max_tokens: 2_000..=32_000 })` before the model | Claim the crate “supports 1M-token prompts” |
+| `pin` facts that must survive a tight budget | Hand-roll truncation in every harness |
+| `compact_working` when working notes pile up (optional, explicit) | Auto-summarize with a network LLM (not in this crate) |
+| `end_turn_consolidate` when you mean to expire/promote | Expect consolidate to run in the background |
+
+**Pattern**
+
+1. Persist user/assistant notes as working (and durable facts as profile).
+2. Before each model call, hybrid-recall + pack until the **token budget** is full (pins and high scores first). Tokens default to `ceil(chars/4)` — no tiktoken. Plug in [`TokenEstimator`](../src/harness/tokens.rs) if you have a real tokenizer.
+3. Optionally compact: keep pinned + newest working, fold the rest into **one extractive episodic note**, forget those working rows. Default [`ExtractiveCompactor`](../src/harness/compact.rs) is offline. A later `Compactor` may call an LLM; the default must not.
+4. Still call `consolidate` yourself for TTL delete + tier promotion.
+
+This crate never puts 1M tokens into the model. It keeps 1M+ of *stored* session on disk and feeds ~2k–32k per turn.
+
+## Harness loop
 
 ```rust
-use ai_memory::{memory_tool_specs, MemoryPolicy, SqliteStore, TOOL_RECALL};
+use ai_memory::{memory_tool_specs, MemoryPolicy, SqliteStore, TokenBudget, TOOL_RECALL};
 use serde_json::json;
 
 let store = SqliteStore::open("./memory.db")?;
 store.create_project("support-bot", MemoryPolicy::chat())?;
-let session = store.session("support-bot")?; // or AgentSession::attach / ::sqlite
+let session = store.session("support-bot")?; // or AgentSession::attach
 
-// Register with the harness (same JSON Schema, two envelopes)
-let tools = memory_tool_specs();
-let _openai = tools.iter().map(|t| t.openai_tool());
-let _anthropic = tools.iter().map(|t| t.anthropic_tool());
+let _tools = memory_tool_specs(); // openai_tool() / anthropic_tool()
 
-let hits = session.prefetch("user question")?;
-let system = session.pack_context(&hits).render(); // cites id / tier / score
+let pack = session.prefetch_within_budget("user question", TokenBudget::new(4096))?;
+let _system = pack.render(); // cites id / tier / score
 
-let result = session.call_tool(TOOL_RECALL, json!({"text": "theme", "limit": 5}));
+let _ = session.call_tool(TOOL_RECALL, json!({"text": "theme", "limit": 5}));
+session.compact_working()?;
 session.end_turn_consolidate()?;
 ```
 
-Tool names: `memory_remember`, `memory_recall`, `memory_forget`, `memory_pin`, `memory_consolidate`. `call_tool` never panics; failures set `ok: false` and `error`. Batch writes: `remember_many` / `session.remember_turn`. `open()` already applies WAL and the other SQLite defaults; the session inherits them. This process is a **single writer** (`Mutex<Connection>`).
+Tools: `memory_remember`, `memory_recall`, `memory_forget`, `memory_pin`, `memory_consolidate`. `call_tool` never panics (`ok: false` on errors).
 
-## API tour
+Unbudgeted `prefetch` + `pack_context` still exist if you want raw hits.
 
-### Open a store
+## API in one page
 
-```rust
-use std::sync::Arc;
-use ai_memory::{open, open_in_memory, open_in_memory_with_embedder, HashEmbedder, SqliteStore};
+**Open:** `open("./memory.db")` / `open_in_memory()` / `SqliteStore::builder()`. Inject [`Embedder`](#embedder) if you have a real one; default is offline `HashEmbedder`.
 
-let file = open("./memory.db")?;
-let mem = open_in_memory()?;
-let custom = open_in_memory_with_embedder(Arc::new(HashEmbedder::new(64)))?;
-let built = SqliteStore::builder()
-    .path("./memory.db")
-    .embedder(Arc::new(HashEmbedder::new(32)))
-    .build()?;
-```
+**Projects:** `create_project`, `store.project("id")`, `store.session("id")`. Isolation is `project_id` — recall cannot leak across projects.
 
-Default embedder is `HashEmbedder` (deterministic, offline). Production quality needs your own `Embedder`. `open()` applies SQLite PRAGMAs automatically — see [Transparent performance](#transparent-performance).
+**Write:** `remember` (one row) or `remember_many` / `remember_turn` (one transaction). Optional `tier`; otherwise a small keyword heuristic.
 
-### Projects
+**Read:** `get`, `list_memories` / `list_memories_filtered`, `recall`. Default `recall("...")` limit is 8. Expired unpinned rows are hidden from recall immediately (pin survives).
 
-Every memory belongs to one **project**. APIs take `project_id`, or use `store.project("id")`.
+**Budgeted read:** `prefetch_within_budget` / `pack_context_budgeted`. Inspect `pack.tokens`.
 
-```rust
-store.create_project("chat", MemoryPolicy::chat())?;
-store.create_project("journal", MemoryPolicy::journal())?;
-let chat = store.project("chat")?;
+**Pin / forget / compact / consolidate:** `pin` keeps a row past TTL and prefers it in a tight pack. `compact_working` ≠ `consolidate`. Consolidate deletes expired unpinned rows and promotes working→episodic→profile.
 
-store.set_policy("chat", MemoryPolicy::default())?; // update
-let _ = store.get_project("chat")?;
-let _ = store.list_projects()?;
-store.delete_project("journal")?; // cascades memories + embeddings
-```
-
-### Remember, get, list, pin, forget
-
-```rust
-use ai_memory::{MemoryListFilter, RememberRequest, Tier};
-
-let m = chat.remember(
-    RememberRequest::new("scratch: try the new sidebar")
-        .with_tier(Tier::Working)
-        .with_metadata(serde_json::json!({"role": "user"})),
-)?;
-
-let _ = chat.get(&m.id)?;
-let profile_only = chat.list_memories_filtered(
-    MemoryListFilter::new().with_tiers(vec![Tier::Profile]),
-)?;
-
-chat.pin(&m.id)?;
-chat.unpin(&m.id)?;
-chat.forget(&m.id)?;
-```
-
-`list_memories()` hides expired unpinned rows (same rule as recall). Use `.including_expired()` to see them. `get` still returns a row by id so you can `pin` it after the TTL.
-
-### Recall (hybrid)
-
-Always scoped to one project.
-
-```
-score = w_time * recency + w_keyword * token_overlap + w_vector * cosine⁺
-```
-
-Weights come from that project's `MemoryPolicy.recall` (normalized). Optional `since` / `until` / `tiers` / `min_score` / `limit` on `RecallQuery`.
-
-Hits include `score`, `time_score`, `keyword_score`, `vector_score`. Returning a hit increments `access_count` (used by episodic→profile promotion).
-
-### Consolidate
-
-```rust
-let report = chat.consolidate()?;
-// report.expired, promoted_to_episodic, promoted_to_profile
-```
-
-Order: expire unpinned rows past TTL, then promote working→episodic by age, then episodic→profile by age **and** `access_count`. Keep retention **longer** than the promote delay, or items expire first.
-
-## MemoryPolicy
-
-Per project. Defaults:
+## MemoryPolicy (per project)
 
 | Knob | Default |
 |------|---------|
 | working TTL | 24h |
 | episodic TTL | 30 days |
-| profile TTL | none (keep) |
+| profile TTL | keep |
 | working→episodic | 1 hour |
 | episodic→profile | 7 days and ≥ 2 accesses |
 | pinned skips expiry | true |
-| recall weights | time 0.30, keyword 0.30, vector 0.40 |
+| recall mix | time 0.30, keyword 0.30, vector 0.40 |
 | recency half-life | 7 days |
-| candidate_prune | 256 (`0` = score every live row) |
-| scan_limit | 2048 live rows before prune (`0` = no cap) |
+| candidate_prune / scan_limit | 256 / 2048 |
 
-Presets: `MemoryPolicy::chat()` (vector-heavy, shorter working TTL), `MemoryPolicy::journal()` (keyword-heavy, faster promote).
-
-**TTL and recall:** expired non-pinned memories are omitted from `recall` immediately. You do not have to call `consolidate` first (consolidate still deletes them). Extra recall caps: `candidate_prune` 256, `scan_limit` 2048 (`0` = no cap).
+Presets: `MemoryPolicy::chat()`, `MemoryPolicy::journal()`. Keep retention **longer** than the promote delay.
 
 ## Transparent performance
 
-`open()` / `open_in_memory()` / `store.session("id")` are meant to be fast without extra knobs.
+`open()` / `store.session` already apply WAL, `synchronous=NORMAL`, `foreign_keys`, `temp_store=MEMORY`, ~16 MiB cache, 5s busy timeout, statement cache, embed LRU, and recall prune. Inspect `store.applied_pragmas()`.
 
-**What you get for free**
-
-- File open: WAL, `synchronous=NORMAL`, `foreign_keys=ON`, `temp_store=MEMORY`, ~16 MiB `cache_size`, 5s `busy_timeout`, prepared-statement cache
-- In-process embed LRU: identical text + embedder dim is not re-embedded (shared across projects in this process; each remember still inserts its own row)
-- Recall: TTL filter, pinned+recent `scan_limit`, keyword/recency prune before vectors, default `limit` 8
-- Single `remember` uses the same one-item transaction helper as `remember_many`
-
-Inspect: `store.applied_pragmas()`.
-
-**What you should still call**
-
-- `remember_many` / `session.remember_turn` when writing several notes in one turn
-- **`consolidate`** — never runs in the background. TTL only hides expired unpinned rows; consolidate deletes them and promotes tiers
+You still choose `remember_many` for a batch of notes, and you still **call `consolidate` and `compact_working` yourself**.
 
 ```bash
-cargo bench   # not part of cargo test; see benches/memory_hot_path.rs
+cargo bench   # not part of cargo test
 ```
 
-Full tables: [ARCHITECTURE.md](ARCHITECTURE.md#5-transparent-performance--what-you-get-for-free).
-
-## Isolation
-
-Recall SQL is always `WHERE project_id = ?`. Pin/forget/get with the wrong project do not mutate the other project.
-
-## Embedder
+## Embedder and vectors
 
 ```rust
 pub trait Embedder: Send + Sync {
@@ -237,38 +142,12 @@ pub trait Embedder: Send + Sync {
 }
 ```
 
-Inject on `open_with_embedder` / `open_in_memory_with_embedder` / `SqliteStore::builder().embedder(...)`. Inspect with `store.embedder()`.
-
-## Vectors
-
-Default: `BruteForceCosine` over embeddings stored as SQLite blobs.
-
-Optional:
-
-```toml
-ai-memory = { git = "https://github.com/zzjzzb/ai-memory", features = ["sqlite-vec"] }
-```
-
-```rust
-use std::sync::Arc;
-use ai_memory::{SqliteStore, SqliteVecIndex};
-
-let store = SqliteStore::builder()
-    .in_memory()
-    .vector_index(Arc::new(SqliteVecIndex::new()?))
-    .build()?;
-```
-
-`cargo test` (default) stays on brute-force. `cargo test --features sqlite-vec` exercises the extension. If the C extension is awkward in your environment, leave the feature off — default recall still works.
-
-A Lance backend would implement `MemoryStore` later. Do not invent a custom engine.
+Default recall: brute-force cosine. Optional `--features sqlite-vec` for `SqliteVecIndex` (not in default `cargo test`).
 
 ## Tiers
 
 | Tier | Role |
 |------|------|
-| `working` | Session / ephemeral |
-| `episodic` | Day / event logs |
+| `working` | This session / scratch |
+| `episodic` | Day / ticket logs (including compact folds) |
 | `profile` | Durable facts |
-
-Omitted tier → small keyword heuristic (`I prefer` → profile, `Today I` → episodic, else working).
