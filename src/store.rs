@@ -1,6 +1,8 @@
 use crate::error::Result;
 use crate::policy::MemoryPolicy;
-use crate::types::{ConsolidateReport, Memory, Project, RecallHit, RecallQuery, RememberRequest};
+use crate::types::{
+    ConsolidateReport, Memory, MemoryListFilter, Project, RecallHit, RecallQuery, RememberRequest,
+};
 
 /// Backend-agnostic memory kernel.
 ///
@@ -13,10 +15,17 @@ pub trait MemoryStore: Send + Sync {
     fn list_projects(&self) -> Result<Vec<Project>>;
     fn set_policy(&self, project_id: &str, policy: MemoryPolicy) -> Result<()>;
     fn policy(&self, project_id: &str) -> Result<MemoryPolicy>;
+    /// Delete a project and cascade its memories + embeddings.
+    fn delete_project(&self, project_id: &str) -> Result<()>;
 
     fn remember(&self, project_id: &str, req: RememberRequest) -> Result<Memory>;
     fn get(&self, project_id: &str, memory_id: &str) -> Result<Option<Memory>>;
     fn list_memories(&self, project_id: &str) -> Result<Vec<Memory>>;
+    fn list_memories_filtered(
+        &self,
+        project_id: &str,
+        filter: MemoryListFilter,
+    ) -> Result<Vec<Memory>>;
 
     fn pin(&self, project_id: &str, memory_id: &str) -> Result<()>;
     fn unpin(&self, project_id: &str, memory_id: &str) -> Result<()>;
@@ -67,6 +76,14 @@ impl<S: MemoryStore + Clone> ProjectHandle<S> {
 
     pub fn list_memories(&self) -> Result<Vec<Memory>> {
         self.store.list_memories(&self.project_id)
+    }
+
+    pub fn list_memories_filtered(&self, filter: MemoryListFilter) -> Result<Vec<Memory>> {
+        self.store.list_memories_filtered(&self.project_id, filter)
+    }
+
+    pub fn delete(self) -> Result<()> {
+        self.store.delete_project(&self.project_id)
     }
 
     pub fn pin(&self, memory_id: &str) -> Result<()> {

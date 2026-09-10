@@ -7,10 +7,11 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use crate::embedder::{Embedder, HashEmbedder};
 use crate::error::{Error, Result};
 use crate::heuristic::infer_tier;
-use crate::policy::{hybrid_score, keyword_score, MemoryPolicy};
+use crate::policy::{hybrid_score, keyword_score, memory_expired, MemoryPolicy};
 use crate::store::{MemoryStore, ProjectHandle};
 use crate::types::{
-    ConsolidateReport, Memory, Project, RecallHit, RecallQuery, RememberRequest, Tier,
+    ConsolidateReport, Memory, MemoryListFilter, Project, RecallHit, RecallQuery, RememberRequest,
+    Tier,
 };
 use crate::util::{blob_to_vec, ms_to_time, new_id, now_ms, time_to_ms, tokenize, vec_to_blob};
 use crate::vector::{BruteForceCosine, VectorIndex};
@@ -106,6 +107,15 @@ impl SqliteStore {
 
     pub fn open_with_embedder(path: impl AsRef<Path>, embedder: Arc<dyn Embedder>) -> Result<Self> {
         Self::builder().path(path).embedder(embedder).build()
+    }
+
+    pub fn open_in_memory_with_embedder(embedder: Arc<dyn Embedder>) -> Result<Self> {
+        Self::builder().in_memory().embedder(embedder).build()
+    }
+
+    /// Embedder used for `remember` / `recall` on this store.
+    pub fn embedder(&self) -> Arc<dyn Embedder> {
+        Arc::clone(&self.inner.embedder)
     }
 
     /// Scoped handle; all subsequent calls stay inside this project.
@@ -245,6 +255,13 @@ impl MemoryStore for SqliteStore {
         Self::load_policy(&conn, project_id)
     }
 
+    fn delete_project(&self, project_id: &str) -> Result<()> {
+        let conn = self.lock()?;
+        Self::require_project(&conn, project_id)?;
+        conn.execute("DELETE FROM projects WHERE id = ?1", params![project_id])?;
+        Ok(())
+    }
+
     fn remember(&self, project_id: &str, req: RememberRequest) -> Result<Memory> {
         let text = req.text.trim();
         if text.is_empty() {
@@ -303,18 +320,67 @@ impl MemoryStore for SqliteStore {
     }
 
     fn list_memories(&self, project_id: &str) -> Result<Vec<Memory>> {
+        self.list_memories_filtered(project_id, MemoryListFilter::default())
+    }
+
+    fn list_memories_filtered(
+        &self,
+        project_id: &str,
+        filter: MemoryListFilter,
+    ) -> Result<Vec<Memory>> {
         let conn = self.lock()?;
-        Self::require_project(&conn, project_id)?;
-        let mut stmt = conn.prepare(
+        let policy = Self::load_policy(&conn, project_id)?;
+        let mut sql = String::from(
             "SELECT id, project_id, tier, text, metadata_json, created_at, updated_at,
                     last_accessed_at, access_count, pinned
-             FROM memories WHERE project_id = ?1
-             ORDER BY created_at ASC",
-        )?;
-        let rows = stmt.query_map(params![project_id], map_memory)?;
+             FROM memories WHERE project_id = ?",
+        );
+        let mut bind: Vec<rusqlite::types::Value> = vec![project_id.to_string().into()];
+        if let Some(since) = filter.since {
+            sql.push_str(" AND created_at >= ?");
+            bind.push(time_to_ms(since).into());
+        }
+        if let Some(until) = filter.until {
+            sql.push_str(" AND created_at <= ?");
+            bind.push(time_to_ms(until).into());
+        }
+        if let Some(tiers) = &filter.tiers {
+            if tiers.is_empty() {
+                return Ok(Vec::new());
+            }
+            sql.push_str(" AND tier IN (");
+            for (i, t) in tiers.iter().enumerate() {
+                if i > 0 {
+                    sql.push(',');
+                }
+                sql.push('?');
+                bind.push(t.as_str().to_string().into());
+            }
+            sql.push(')');
+        }
+        if let Some(pinned) = filter.pinned {
+            sql.push_str(" AND pinned = ?");
+            bind.push(if pinned { 1i64 } else { 0i64 }.into());
+        }
+        sql.push_str(" ORDER BY created_at ASC");
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(bind.iter()), map_memory)?;
+        let now = SystemTime::now();
         let mut out = Vec::new();
         for row in rows {
-            out.push(row?);
+            let memory = row?;
+            if !filter.include_expired
+                && memory_expired(&policy, memory.pinned, memory.tier, memory.created_at, now)
+            {
+                continue;
+            }
+            out.push(memory);
+            if let Some(limit) = filter.limit {
+                if out.len() >= limit {
+                    break;
+                }
+            }
         }
         Ok(out)
     }
@@ -395,10 +461,14 @@ impl MemoryStore for SqliteStore {
             Ok((memory, blob))
         })?;
 
+        let now = SystemTime::now();
         let mut memories = Vec::new();
         let mut candidates = Vec::new();
         for row in rows {
             let (memory, blob) = row?;
+            if memory_expired(&policy, memory.pinned, memory.tier, memory.created_at, now) {
+                continue;
+            }
             let vec = blob.and_then(|b| blob_to_vec(&b)).unwrap_or_default();
             candidates.push((memory.id.clone(), vec));
             memories.push(memory);

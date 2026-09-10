@@ -2,7 +2,9 @@
 
 Personal AI memory semantic layer: **working / episodic / profile** memories with **hybrid recall** (time + keyword + vector), scoped per **project**, on a single **Rust + SQLite** kernel.
 
-This is a library crate. Language bindings, sync, and cloud are out of scope for the MVP.
+This is a library crate. Language bindings, sync, and cloud are out of scope.
+
+**Usage docs:** [English](docs/USAGE.md) · [简体中文](docs/USAGE.zh-CN.md)
 
 ## Quickstart
 
@@ -40,12 +42,13 @@ fn main() -> ai_memory::Result<()> {
 }
 ```
 
-`open_in_memory()` is the same API without a file. The default embedder is a deterministic hash encoder (no network, no API keys). Plug in a real [`Embedder`](src/embedder.rs) for production quality.
+`open_in_memory()` is the same API without a file. Inject an embedder with `open_with_embedder` / `open_in_memory_with_embedder` / `SqliteStore::builder().embedder(...)`. The default is a deterministic hash encoder (no network, no API keys).
 
-Two-project demo:
+Demos:
 
 ```bash
 cargo run --example two_projects
+cargo run --example assistant_sim
 ```
 
 ## Architecture
@@ -76,13 +79,13 @@ cargo run --example two_projects
 
 ### Project isolation
 
-Every memory row carries a `project_id`. Opens are not magically global: `remember` / `recall` / `pin` / `forget` / `consolidate` all take a project id (or use `store.project("id")` which bakes it in). Recall SQL is always `WHERE project_id = ?`. Guessing a memory UUID from another project still fails (`MemoryNotFound`).
+Every memory row carries a `project_id`. Opens are not magically global: `remember` / `recall` / `pin` / `forget` / `consolidate` all take a project id (or use `store.project("id")` which bakes it in). Recall SQL is always `WHERE project_id = ?`. Using another project's memory id for pin/forget still fails (`MemoryNotFound`).
 
 ### MemoryPolicy (per project)
 
 Configurable, with defaults:
 
-- **Retention / TTL** per tier (`None` = keep forever). Applied on `consolidate`. Pinned rows skip expiry when `pinned_skip_expiry` is true.
+- **Retention / TTL** per tier (`None` = keep forever). **Recall and default list omit expired unpinned rows** immediately; `consolidate` deletes them. Pinned rows skip expiry when `pinned_skip_expiry` is true.
 - **Promote / consolidate**: working → episodic after an age; episodic → profile after age **and** a minimum `access_count` (recall increments it).
 - **Recall weights**: mix of recency (exponential half-life), keyword token overlap, and cosine similarity. Weights are normalized at score time.
 
@@ -100,14 +103,22 @@ Hits are ranked and returned with component scores.
 
 ### Vectors
 
-- [`Embedder`](src/embedder.rs) trait + [`HashEmbedder`](src/embedder.rs) for tests.
-- [`VectorIndex`](src/vector.rs) trait + in-crate [`BruteForceCosine`](src/vector.rs) for MVP.
+- [`Embedder`](src/embedder.rs) trait + [`HashEmbedder`](src/embedder.rs). Inject on open (see [USAGE](docs/USAGE.md)).
+- [`VectorIndex`](src/vector.rs) trait + in-crate [`BruteForceCosine`](src/vector.rs) (default).
 
-**sqlite-vec path (not wired yet):** embeddings already live in SQLite. A later `VectorIndex` impl can load the [sqlite-vec](https://github.com/asg017/sqlite-vec) extension via rusqlite and replace the brute-force scan with a `vec0` query. No schema rewrite required; do not invent a custom engine.
+Optional `--features sqlite-vec` compiles [sqlite-vec](https://github.com/asg017/sqlite-vec) 0.1.6 and exposes `SqliteVecIndex`. Default `cargo test` does **not** enable it. Inject explicitly:
+
+```rust
+SqliteStore::builder()
+    .vector_index(std::sync::Arc::new(ai_memory::SqliteVecIndex::new()?))
+    .build()?;
+```
+
+(`SqliteVecIndex` is only in the crate root when the feature is on.)
 
 A Lance backend would implement `MemoryStore` (and optionally `VectorIndex`) the same way. Still one engine per deployment; policies stay per project.
 
-## Non-goals (MVP)
+## Non-goals
 
 - No Zig, no custom database engine
 - No sync, server, or multi-tenant cloud
@@ -117,7 +128,7 @@ A Lance backend would implement `MemoryStore` (and optionally `VectorIndex`) the
 ## Future work
 
 - Real embedders (ONNX / token APIs) behind `Embedder`
-- `sqlite-vec` `VectorIndex` implementation
+- Query `vec0` virtual tables inside SQLite instead of scoring candidate blobs
 - Optional Lance `MemoryStore`
 - Language bindings once the Rust API is stable
 - Sync / multi-device (explicitly not this crate’s job yet)
@@ -126,5 +137,7 @@ A Lance backend would implement `MemoryStore` (and optionally `VectorIndex`) the
 
 ```bash
 cargo test
+cargo test --features sqlite-vec   # optional extension path
 cargo run --example two_projects
+cargo run --example assistant_sim
 ```
