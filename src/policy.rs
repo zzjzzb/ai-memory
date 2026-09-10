@@ -107,6 +107,9 @@ pub struct RecallWeights {
     /// Age at which the recency term is 0.5 (exponential half-life).
     #[serde(with = "duration_secs")]
     pub time_half_life: Duration,
+    /// Max candidates scored by [`crate::vector::VectorIndex`]. `0` disables prune.
+    #[serde(default = "default_candidate_prune")]
+    pub candidate_prune: usize,
 }
 
 impl Default for RecallWeights {
@@ -116,8 +119,13 @@ impl Default for RecallWeights {
             keyword: 0.30,
             vector: 0.40,
             time_half_life: Duration::from_secs(7 * 24 * 60 * 60),
+            candidate_prune: default_candidate_prune(),
         }
     }
+}
+
+fn default_candidate_prune() -> usize {
+    256
 }
 
 impl RecallWeights {

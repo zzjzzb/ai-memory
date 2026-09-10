@@ -119,6 +119,8 @@ pub struct RecallQuery {
     pub tiers: Option<Vec<Tier>>,
     /// Drop hits below this combined score. `None` means no cutoff.
     pub min_score: Option<f32>,
+    /// Override policy `candidate_prune`. `None` uses the project's policy.
+    pub candidate_limit: Option<usize>,
 }
 
 impl RecallQuery {
@@ -130,6 +132,7 @@ impl RecallQuery {
             until: None,
             tiers: None,
             min_score: None,
+            candidate_limit: None,
         }
     }
 
@@ -155,6 +158,11 @@ impl RecallQuery {
 
     pub fn with_min_score(mut self, min_score: f32) -> Self {
         self.min_score = Some(min_score);
+        self
+    }
+
+    pub fn with_candidate_limit(mut self, limit: usize) -> Self {
+        self.candidate_limit = Some(limit);
         self
     }
 }

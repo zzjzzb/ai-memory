@@ -7,7 +7,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use crate::embedder::{Embedder, HashEmbedder};
 use crate::error::{Error, Result};
 use crate::heuristic::infer_tier;
-use crate::policy::{hybrid_score, keyword_score, memory_expired, MemoryPolicy};
+use crate::policy::{hybrid_score, keyword_score, memory_expired, recency_score, MemoryPolicy};
 use crate::store::{MemoryStore, ProjectHandle};
 use crate::types::{
     ConsolidateReport, Memory, MemoryListFilter, Project, RecallHit, RecallQuery, RememberRequest,
@@ -76,8 +76,12 @@ impl SqliteStoreBuilder {
             None => Connection::open_in_memory()?,
         };
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        conn.busy_timeout(Duration::from_millis(5_000))?;
         if self.path.is_some() {
-            conn.execute_batch("PRAGMA journal_mode = WAL;")?;
+            conn.execute_batch(
+                "PRAGMA journal_mode = WAL;
+                 PRAGMA synchronous = NORMAL;",
+            )?;
         }
         init_schema(&conn)?;
         Ok(SqliteStore {
@@ -263,45 +267,87 @@ impl MemoryStore for SqliteStore {
     }
 
     fn remember(&self, project_id: &str, req: RememberRequest) -> Result<Memory> {
-        let text = req.text.trim();
-        if text.is_empty() {
-            return Err(Error::EmptyText);
+        let mut out = self.remember_many(project_id, vec![req])?;
+        out.pop().ok_or(Error::EmptyText)
+    }
+
+    fn remember_many(&self, project_id: &str, reqs: Vec<RememberRequest>) -> Result<Vec<Memory>> {
+        if reqs.is_empty() {
+            return Ok(Vec::new());
         }
-        let tier = req.tier.unwrap_or_else(|| infer_tier(text));
-        let embedding = self.inner.embedder.embed(text)?;
-        let id = new_id();
-        let now = now_ms();
-        let metadata_json = match &req.metadata {
-            Some(v) => Some(serde_json::to_string(v)?),
-            None => None,
-        };
 
-        let conn = self.lock()?;
+        struct Prepared {
+            text: String,
+            tier: Tier,
+            metadata: Option<serde_json::Value>,
+            embedding: Vec<f32>,
+        }
+
+        let mut prepared = Vec::with_capacity(reqs.len());
+        for req in reqs {
+            let text = req.text.trim().to_string();
+            if text.is_empty() {
+                return Err(Error::EmptyText);
+            }
+            let tier = req.tier.unwrap_or_else(|| infer_tier(&text));
+            let embedding = self.inner.embedder.embed(&text)?;
+            prepared.push(Prepared {
+                text,
+                tier,
+                metadata: req.metadata,
+                embedding,
+            });
+        }
+
+        let mut conn = self.lock()?;
         Self::require_project(&conn, project_id)?;
-        conn.execute(
-            "INSERT INTO memories (
-                id, project_id, tier, text, metadata_json,
-                created_at, updated_at, last_accessed_at, access_count, pinned
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, 0, 0)",
-            params![id, project_id, tier.as_str(), text, metadata_json, now, now],
-        )?;
-        conn.execute(
-            "INSERT INTO embeddings (memory_id, dim, vector) VALUES (?1, ?2, ?3)",
-            params![id, embedding.len() as i64, vec_to_blob(&embedding)],
-        )?;
-
-        Ok(Memory {
-            id,
-            project_id: project_id.to_string(),
-            tier,
-            text: text.to_string(),
-            metadata: req.metadata,
-            created_at: ms_to_time(now),
-            updated_at: ms_to_time(now),
-            last_accessed_at: None,
-            access_count: 0,
-            pinned: false,
-        })
+        let tx = conn.transaction()?;
+        let now = now_ms();
+        let mut out = Vec::with_capacity(prepared.len());
+        for item in prepared {
+            let id = new_id();
+            let metadata_json = match &item.metadata {
+                Some(v) => Some(serde_json::to_string(v)?),
+                None => None,
+            };
+            tx.execute(
+                "INSERT INTO memories (
+                    id, project_id, tier, text, metadata_json,
+                    created_at, updated_at, last_accessed_at, access_count, pinned
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, 0, 0)",
+                params![
+                    id,
+                    project_id,
+                    item.tier.as_str(),
+                    item.text,
+                    metadata_json,
+                    now,
+                    now
+                ],
+            )?;
+            tx.execute(
+                "INSERT INTO embeddings (memory_id, dim, vector) VALUES (?1, ?2, ?3)",
+                params![
+                    id,
+                    item.embedding.len() as i64,
+                    vec_to_blob(&item.embedding)
+                ],
+            )?;
+            out.push(Memory {
+                id,
+                project_id: project_id.to_string(),
+                tier: item.tier,
+                text: item.text,
+                metadata: item.metadata,
+                created_at: ms_to_time(now),
+                updated_at: ms_to_time(now),
+                last_accessed_at: None,
+                access_count: 0,
+                pinned: false,
+            });
+        }
+        tx.commit()?;
+        Ok(out)
     }
 
     fn get(&self, project_id: &str, memory_id: &str) -> Result<Option<Memory>> {
@@ -425,9 +471,8 @@ impl MemoryStore for SqliteStore {
 
         let mut sql = String::from(
             "SELECT m.id, m.project_id, m.tier, m.text, m.metadata_json, m.created_at,
-                    m.updated_at, m.last_accessed_at, m.access_count, m.pinned, e.vector
+                    m.updated_at, m.last_accessed_at, m.access_count, m.pinned
              FROM memories m
-             LEFT JOIN embeddings e ON e.memory_id = m.id
              WHERE m.project_id = ?",
         );
         let mut bind: Vec<rusqlite::types::Value> = vec![project_id.to_string().into()];
@@ -455,23 +500,51 @@ impl MemoryStore for SqliteStore {
         }
 
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(bind.iter()), |row| {
-            let memory = map_memory(row)?;
-            let blob: Option<Vec<u8>> = row.get(10)?;
-            Ok((memory, blob))
-        })?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(bind.iter()), map_memory)?;
 
         let now = SystemTime::now();
-        let mut memories = Vec::new();
-        let mut candidates = Vec::new();
+        let mut live: Vec<Memory> = Vec::new();
         for row in rows {
-            let (memory, blob) = row?;
+            let memory = row?;
             if memory_expired(&policy, memory.pinned, memory.tier, memory.created_at, now) {
                 continue;
             }
+            live.push(memory);
+        }
+        drop(stmt);
+
+        // Cheap keyword+recency prune *before* loading embedding blobs / VectorIndex.
+        let prune = query
+            .candidate_limit
+            .unwrap_or(policy.recall.candidate_prune);
+        if prune > 0 && live.len() > prune {
+            live.sort_by(|a, b| {
+                let cheap = |m: &Memory| {
+                    let age = now
+                        .duration_since(m.created_at)
+                        .unwrap_or(Duration::from_secs(0));
+                    let kw = keyword_score(&q_tokens, &tokenize(&m.text));
+                    let ts = recency_score(age, policy.recall.time_half_life);
+                    kw + ts
+                };
+                cheap(b)
+                    .partial_cmp(&cheap(a))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            live.truncate(prune);
+        }
+
+        let mut candidates = Vec::with_capacity(live.len());
+        for memory in &live {
+            let blob: Option<Vec<u8>> = conn
+                .query_row(
+                    "SELECT vector FROM embeddings WHERE memory_id = ?1",
+                    params![memory.id],
+                    |row| row.get(0),
+                )
+                .optional()?;
             let vec = blob.and_then(|b| blob_to_vec(&b)).unwrap_or_default();
             candidates.push((memory.id.clone(), vec));
-            memories.push(memory);
         }
 
         let sims = self.inner.vectors.similar(&q_embed, &candidates)?;
@@ -481,7 +554,7 @@ impl MemoryStore for SqliteStore {
         }
 
         let now = SystemTime::now();
-        let mut hits: Vec<RecallHit> = memories
+        let mut hits: Vec<RecallHit> = live
             .into_iter()
             .map(|memory| {
                 let age = now

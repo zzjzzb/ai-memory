@@ -19,6 +19,9 @@ pub trait MemoryStore: Send + Sync {
     fn delete_project(&self, project_id: &str) -> Result<()>;
 
     fn remember(&self, project_id: &str, req: RememberRequest) -> Result<Memory>;
+    /// Insert many memories in one transaction. Empty input yields an empty vec.
+    /// If any item is invalid, nothing is written.
+    fn remember_many(&self, project_id: &str, reqs: Vec<RememberRequest>) -> Result<Vec<Memory>>;
     fn get(&self, project_id: &str, memory_id: &str) -> Result<Option<Memory>>;
     fn list_memories(&self, project_id: &str) -> Result<Vec<Memory>>;
     fn list_memories_filtered(
@@ -68,6 +71,10 @@ impl<S: MemoryStore + Clone> ProjectHandle<S> {
 
     pub fn remember(&self, req: RememberRequest) -> Result<Memory> {
         self.store.remember(&self.project_id, req)
+    }
+
+    pub fn remember_many(&self, reqs: Vec<RememberRequest>) -> Result<Vec<Memory>> {
+        self.store.remember_many(&self.project_id, reqs)
     }
 
     pub fn get(&self, memory_id: &str) -> Result<Option<Memory>> {

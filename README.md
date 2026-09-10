@@ -4,7 +4,10 @@ Personal AI memory semantic layer: **working / episodic / profile** memories wit
 
 This is a library crate. Language bindings, sync, and cloud are out of scope.
 
-**Usage docs:** [English](docs/USAGE.md) · [简体中文](docs/USAGE.zh-CN.md)
+**Usage docs:** [English](docs/USAGE.md) · [简体中文](docs/USAGE.zh-CN.md)  
+**Architecture:** [English](docs/ARCHITECTURE.md) · [简体中文](docs/ARCHITECTURE.zh-CN.md)
+
+This crate is the **memory layer under** agent harnesses (e.g. [pi](https://github.com/earendil-works/pi), Claude / Codex / DeepSeek-style loops). It is not a full LLM harness. Use `AgentSession` + JSON `ToolSpec`s to register `memory_remember` / `memory_recall` / `memory_forget` / `memory_pin` / `memory_consolidate`.
 
 ## Quickstart
 
@@ -49,6 +52,7 @@ Demos:
 ```bash
 cargo run --example two_projects
 cargo run --example assistant_sim
+cargo run --example harness_loop_sim
 ```
 
 ## Architecture
@@ -140,4 +144,5 @@ cargo test
 cargo test --features sqlite-vec   # optional extension path
 cargo run --example two_projects
 cargo run --example assistant_sim
+cargo run --example harness_loop_sim
 ```

@@ -17,6 +17,8 @@ pub enum Error {
     EmptyText,
     Embedding(String),
     Poisoned,
+    UnknownTool(String),
+    InvalidToolArgs(String),
 }
 
 impl fmt::Display for Error {
@@ -36,6 +38,8 @@ impl fmt::Display for Error {
             Error::EmptyText => write!(f, "memory text must not be empty"),
             Error::Embedding(msg) => write!(f, "embedding: {msg}"),
             Error::Poisoned => write!(f, "store lock poisoned"),
+            Error::UnknownTool(name) => write!(f, "unknown tool: {name}"),
+            Error::InvalidToolArgs(msg) => write!(f, "invalid tool args: {msg}"),
         }
     }
 }
