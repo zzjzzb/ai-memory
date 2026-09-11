@@ -7,7 +7,9 @@
 
 It does **not** stuff a 1M-token transcript into the prompt, run consolidate in the background, or talk to an LLM.
 
-**Docs:** [USAGE (EN)](docs/USAGE.md) · [用法 (中文)](docs/USAGE.zh-CN.md) · [ARCHITECTURE (EN)](docs/ARCHITECTURE.md) · [架构 (中文)](docs/ARCHITECTURE.zh-CN.md)
+**Docs:** [USAGE (EN)](docs/USAGE.md) · [用法 (中文)](docs/USAGE.zh-CN.md) · [ARCHITECTURE (EN)](docs/ARCHITECTURE.md) · [架构 (中文)](docs/ARCHITECTURE.zh-CN.md) · [DeepSeek Harness (EN)](docs/INTEGRATION_DSH.md) · [DeepSeek Harness（中文）](docs/INTEGRATION_DSH.zh-CN.md)
+
+**Flagship dsh demo:** [SME support / ops scenario](scenarios/dsh-support-agent/README.md) · [中文](scenarios/dsh-support-agent/README.zh-CN.md) — one long session, budgeted pack, not a JS memory rewrite.
 
 **Contribute:** [CONTRIBUTING.md](CONTRIBUTING.md) · [参与贡献](CONTRIBUTING.zh-CN.md) · [Issues](https://github.com/zzjzzb/ai-memory/issues) · [Pull requests](https://github.com/zzjzzb/ai-memory/pulls)
 
@@ -40,6 +42,7 @@ fn main() -> ai_memory::Result<()> {
 ```bash
 cargo test
 cargo run --example harness_loop_sim
+cargo run --bin ai-memory -- --in-memory memory_remember '{"text":"hi","tier":"profile"}'
 ```
 
 `open()` applies WAL and other SQLite defaults. Inject a real [`Embedder`](src/embedder.rs) when you have one; default `HashEmbedder` is offline. Optional `--features sqlite-vec`.
@@ -55,6 +58,15 @@ cargo run --example harness_loop_sim
 
 Isolation is `project_id`. Two sessions on one file do not leak recall.
 
+## DeepSeek Harness (showcase)
+
+The intended **consumer / showcase** is [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): a thin Cordis `apply(ctx)` plugin over **this Rust crate** (SQLite stays here; we do not rewrite memory in JS, and we do not pitch auto-LLM extraction).
+
+- Endorsement / install: [INTEGRATION_DSH.md](docs/INTEGRATION_DSH.md) · [集成说明（中文）](docs/INTEGRATION_DSH.zh-CN.md)
+- Installable bundle: [`integrations/dsh-ai-memory/`](integrations/dsh-ai-memory/) (`dsh plugin add ./integrations/dsh-ai-memory`)
+- **Flagship usage scenario:** [`scenarios/dsh-support-agent/`](scenarios/dsh-support-agent/) (sidebar + billing tickets; headless `node …/sim/run.mjs` or real `dsh plugin add`)
+- Host API: `HostSession` + `ai-memory` CLI; preferred bridge is in-process **napi-rs**
+
 ## License
 
 Licensed under either of
@@ -69,8 +81,12 @@ at your option.
 ```bash
 cargo test
 cargo test --features sqlite-vec
+cargo test -p ai-memory-node
 cargo bench
 cargo run --example two_projects
 cargo run --example assistant_sim
 cargo run --example harness_loop_sim
+DSH_AI_MEMORY_SKIP_NATIVE=1 npm test --prefix integrations/dsh-ai-memory
+cargo build --bin ai-memory && npm test --prefix scenarios/dsh-support-agent
+node scenarios/dsh-support-agent/sim/run.mjs
 ```

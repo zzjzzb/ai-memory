@@ -1,0 +1,7 @@
+node_modules/
+ai-memory.node
+ai-memory.*.node
+bin/
+*.db
+*.db-wal
+*.db-shm

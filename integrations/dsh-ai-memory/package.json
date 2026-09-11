@@ -1,0 +1,66 @@
+{
+  "name": "dsh-ai-memory",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "DeepSeek Harness Cordis plugin: thin host over the ai-memory Rust + SQLite crate (not a JS memory rewrite)",
+  "license": "MIT OR Apache-2.0",
+  "author": "Zhou Ben",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zzjzzb/ai-memory.git",
+    "directory": "integrations/dsh-ai-memory"
+  },
+  "homepage": "https://github.com/zzjzzb/ai-memory/tree/main/integrations/dsh-ai-memory",
+  "bugs": {
+    "url": "https://github.com/zzjzzb/ai-memory/issues"
+  },
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "native",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "prepare": "node scripts/build-native.mjs",
+    "build": "node scripts/build-native.mjs",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.1",
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "ai-memory",
+    "sqlite"
+  ]
+}

@@ -28,13 +28,16 @@ cargo test --features sqlite-vec
 5. 动到公开 API 或推荐接入方式时，同步改文档：
    - [docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md) / [docs/USAGE.md](docs/USAGE.md)
    - [docs/ARCHITECTURE.zh-CN.md](docs/ARCHITECTURE.zh-CN.md) / [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+   - DeepSeek Harness 展示：[docs/INTEGRATION_DSH.zh-CN.md](docs/INTEGRATION_DSH.zh-CN.md) / [docs/INTEGRATION_DSH.md](docs/INTEGRATION_DSH.md)、[`integrations/dsh-ai-memory/`](integrations/dsh-ai-memory/)（目录内 `DSH_AI_MEMORY_SKIP_NATIVE=1 npm test`），以及旗舰场景 [`scenarios/dsh-support-agent/`](scenarios/dsh-support-agent/)（`cargo test --test dsh_support_scenario`）
 6. 向 `main` 提 PR，写清楚**为什么**要改。
 
 ## 设计边界（请遵守）
 
 **范围内**
 
-- 按项目隔离的记忆、`MemoryPolicy`、混合召回、Harness 适配层（`AgentSession`、工具、带 token 预算的 `ContextPack`）
+- 按项目隔离的记忆、`MemoryPolicy`、混合召回、Harness 适配层（`AgentSession`、`HostSession`、工具、带 token 预算的 `ContextPack`）
+- 薄的 DeepSeek Harness Cordis 插件（调用本 crate：napi 或 CLI，不用 JS 重写存储）
+- 驱动该插件的用法场景（无头模拟 + 文档化的 `dsh plugin add`）
 - 对开发者透明的本地性能（SQLite 默认、缓存、裁剪）
 - 默认离线（测试不依赖网络）
 

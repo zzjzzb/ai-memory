@@ -5,3 +5,7 @@ Cargo.lock
 *.db
 *.db-wal
 *.db-shm
+node_modules/
+integrations/dsh-ai-memory/ai-memory.node
+integrations/dsh-ai-memory/ai-memory.*.node
+integrations/dsh-ai-memory/bin/
