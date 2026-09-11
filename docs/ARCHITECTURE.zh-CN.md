@@ -1,6 +1,6 @@
 # 架构
 
-中文。[English](ARCHITECTURE.md) · 用法：[USAGE.zh-CN.md](USAGE.zh-CN.md)
+中文。[English](ARCHITECTURE.md) · 用法：[USAGE.zh-CN.md](USAGE.zh-CN.md) · dsh 安装：[INSTALL_DSH.zh-CN.md](INSTALL_DSH.zh-CN.md)
 
 `ai-memory` 在编排层**下面**。模型和工具循环归你。本库按项目存记忆，并为下一轮模型调用打出 **有 token 预算** 的 pack。
 

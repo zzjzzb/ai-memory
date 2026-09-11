@@ -2,6 +2,15 @@
 
 中文。[English](INTEGRATION_DSH.md) · 用法：[USAGE.zh-CN.md](USAGE.zh-CN.md) · 架构：[ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md)
 
+**5 分钟安装（复制命令）：** [INSTALL_DSH.zh-CN.md](INSTALL_DSH.zh-CN.md) · [English](INSTALL_DSH.md)
+
+```bash
+dsh plugin --profile web add github:zzjzzb/ai-memory#<commit>
+dsh --profile web --dump-config    # 找 "# == dsh-ai-memory"
+```
+
+请钉死 `<commit>`（见安装指南）。第一次 git add 常常要给 `dsh-ai-memory` 写 `allowBuilds` —— 也在那份指南里。
+
 **DeepSeek Harness（dsh）** 是 `ai-memory` 的目标 **消费方 / 展示面**。本文供他人引用：为什么本库放在 dsh **下面**、薄 Cordis 插件怎么装、以及它和扎堆的「Memory 插件」有何不同。
 
 **旗舰演示：** [scenarios/dsh-support-agent/](../scenarios/dsh-support-agent/README.zh-CN.md) — 一条很长的支持 / 运维会话（侧栏 bug + 账单 + 后续）。无头模拟不需要 dsh 网页，直接驱动 Cordis 插件。
@@ -80,11 +89,11 @@ flowchart TB
     Store --> DB
 ```
 
-可安装 bundle 合同（官方发布教程）：
+可安装 bundle 合同（官方发布教程）—— **仓库根目录**：
 
-- `package.json` → `dsh.bundle.patch` → `./cordis.patch.yml`
+- 根目录 `package.json` → `dsh.bundle.patch` → `./cordis.patch.yml`
 - 补丁行 `name: dsh-ai-memory`（已安装包名，不是相对路径）
-- 模块导出 `name`、`inject`、`apply(ctx)`；有 `@deepseek-ai/schemastery` 时再导出 `Config`
+- 模块（根目录 `index.js` 再导出 `integrations/dsh-ai-memory`）导出 `name`、`inject`、`apply(ctx)`；有 `@deepseek-ai/schemastery` 时再导出 `Config`
 
 ## 旗舰用法场景
 
@@ -96,34 +105,35 @@ flowchart TB
 | 种子 | `T-1042` 侧栏重叠、`T-1088` 重复发票、pin `PINNED-BILLING-OWNER-ADA`、项目 `sme-hr` 隔离 |
 | 无头（CI / 无 dsh UI） | `node scenarios/dsh-support-agent/sim/run.mjs` — 假 `ctx`，与插件同一套 `apply(ctx)` |
 | Rust 冒烟 | `cargo test --test dsh_support_scenario` |
-| 真机 dsh | `dsh plugin add` 后把种子当用户句；看 `## Memory (project: sme-support, …)`，不是整段 transcript |
+| 真机 dsh | [INSTALL_DSH.zh-CN.md](INSTALL_DSH.zh-CN.md)：`dsh plugin add github:zzjzzb/ai-memory#<commit>` 后把种子当用户句；看 `## Memory (project: sme-support, …)`，不是整段 transcript |
 
 应看到：pack 的 `tokens` 不超过预算；紧预算下 pin 仍在；`sme-hr` 不泄漏 T-1042。提交 dsh.pub 仍是下一步。
 
 ## 安装路径
 
-包：[ `integrations/dsh-ai-memory/` ](../integrations/dsh-ai-memory/)（包名 `dsh-ai-memory`）。
+**用户请走 [INSTALL_DSH.zh-CN.md](INSTALL_DSH.zh-CN.md)**（前置条件、`allowBuilds`、验证、配置、故障排除）。
+
+可安装组合包在 **仓库根目录**（`package.json` → `dsh.bundle.patch` → `./cordis.patch.yml`）。[`integrations/dsh-ai-memory/`](../integrations/dsh-ai-memory/) 里的 Cordis Host 由根目录 `index.js` 再导出。Rust `Cargo.toml` 仍是记忆的真相源。
 
 ```bash
-# 仓库检出
-dsh plugin --profile demo add ./integrations/dsh-ai-memory
-dsh --profile demo --dump-config    # "# == dsh-ai-memory"
+# GitHub（推荐；钉 commit）
+dsh plugin --profile web add github:zzjzzb/ai-memory#<commit>
+dsh --profile web --dump-config    # "# == dsh-ai-memory"
+
+# 仓库检出（同一套根组合包）
+dsh plugin --profile web add .
 ```
 
-Git（本仓库子目录）。pnpm ≥10 会拒绝跑 `prepare`，直到你允许构建 —— `prepare` 会编译 Rust（napi + CLI）。按官方说明，把包名写进 profile 的 `pnpm-workspace.yaml` 再执行一次 `add`：
+git 安装会跑 **`prepare`**（napi + `ai-memory` CLI）。pnpm ≥10 会拒绝该脚本，直到你允许构建。按官方说明，把包名写进 profile 的 `pnpm-workspace.yaml` 再执行一次 `add`：
 
 ```yaml
 allowBuilds:
   dsh-ai-memory: true
 ```
 
-```bash
-dsh plugin --profile demo add github:zzjzzb/ai-memory#path:integrations/dsh-ai-memory
-```
+开发者仍可从 clone 里 `dsh plugin add ./integrations/dsh-ai-memory`。**不要**把 `github:zzjzzb/ai-memory#path:integrations/dsh-ai-memory` 当作用户安装路径 —— 子目录 git 拉取带不上 `prepare` 必须编译的 Rust crate。
 
-请钉 commit（`github:zzjzzb/ai-memory#<sha>:path:integrations/dsh-ai-memory`），避免后来的 push 悄悄改安装期代码。
-
-**发现（可选、下一步）：** 给仓库加上 GitHub topic `dsh-plugin`。只有你真要目录条目时，再到 [dsh.pub](https://dsh.pub/zh/submit/) 提交。dsh.pub 第一版更希望 **仓库根** 就是可安装 bundle；本子目录是仓内展示，不是已上架声明。
+**发现（可选、下一步）：** GitHub topic `dsh-plugin` 已经打上。只有你真要目录条目时，再到 [dsh.pub](https://dsh.pub/zh/submit/) 提交。dsh.pub 要求 **仓库根** 就是可安装组合包；现在就是本包。
 
 ## 绑定策略
 
@@ -152,15 +162,16 @@ dsh plugin --profile demo add github:zzjzzb/ai-memory#path:integrations/dsh-ai-m
 
 ```bash
 cargo test
+node scripts/check-dsh-bundle.mjs
 cd integrations/dsh-ai-memory && DSH_AI_MEMORY_SKIP_NATIVE=1 npm test
 # 有 Rust / Node 工具链之后：
-npm run prepare   # 在 integrations/dsh-ai-memory
+npm run prepare   # 仓库根或 integrations/dsh-ai-memory
 cargo build --bin ai-memory
 npm test --prefix scenarios/dsh-support-agent
 node scenarios/dsh-support-agent/sim/run.mjs
 ```
 
-手工：按上面 `dsh plugin add`，调用 `memory_remember`，下一轮模型调用应出现 `## Memory (project: …)` 段。
+手工：[INSTALL_DSH.zh-CN.md](INSTALL_DSH.zh-CN.md) — `dsh plugin add github:zzjzzb/ai-memory#<commit>`，调用 `memory_remember`，下一轮模型调用应出现 `## Memory (project: …)` 段。
 
 ## 我们不会宣称
 

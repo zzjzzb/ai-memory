@@ -1,6 +1,6 @@
 # 使用 ai-memory
 
-简体中文。[English](USAGE.md) · 架构：[ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md) · DeepSeek Harness：[INTEGRATION_DSH.zh-CN.md](INTEGRATION_DSH.zh-CN.md)
+简体中文。[English](USAGE.md) · 架构：[ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md) · DeepSeek Harness：[INTEGRATION_DSH.zh-CN.md](INTEGRATION_DSH.zh-CN.md) · **5 分钟安装：** [INSTALL_DSH.zh-CN.md](INSTALL_DSH.zh-CN.md)
 
 **是什么：** 本地 Rust + SQLite 库，按 **project** 存 agent 记忆（working / episodic / profile）。模型循环仍由你的编排层负责（pi、Claude-like、Codex-like）。本库负责存、召回，以及打出一小段 **有 token 预算** 的 prompt。
 

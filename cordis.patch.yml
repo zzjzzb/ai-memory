@@ -1,0 +1,10 @@
+# Bundle layer for `dsh plugin add`. Row `name` is the installed package name.
+# Users override config in the profile's own cordis.patch.yml (full-row replace).
+- insert:
+    - id: dsh-ai-memory
+      name: dsh-ai-memory
+      config:
+        projectId: dsh
+        tokenBudget: 8192
+        policy: chat
+        prefetchEnabled: true

@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 /**
- * Git install (`dsh plugin add github:…`) does not run `build`, only `prepare`.
- * pnpm ≥10 also requires allowBuilds for this package. See plugin README.
+ * Git install (`dsh plugin add github:zzjzzb/ai-memory`) does not run `build`,
+ * only `prepare`. The root package.json `prepare` script points here so a
+ * github: clone of this repo (Cargo.toml at the checkout root) can compile.
+ * pnpm ≥10 also requires allowBuilds for package `dsh-ai-memory`.
+ * See docs/INSTALL_DSH.md.
  *
  * Builds:
  *   1. napi cdylib (preferred in-process binding)

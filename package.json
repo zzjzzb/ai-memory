@@ -7,33 +7,34 @@
   "author": "Zhou Ben",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zzjzzb/ai-memory.git",
-    "directory": "integrations/dsh-ai-memory"
+    "url": "git+https://github.com/zzjzzb/ai-memory.git"
   },
-  "homepage": "https://github.com/zzjzzb/ai-memory/blob/main/docs/INSTALL_DSH.md",
+  "homepage": "https://github.com/zzjzzb/ai-memory",
   "bugs": {
     "url": "https://github.com/zzjzzb/ai-memory/issues"
   },
-  "main": "./src/index.js",
+  "main": "./index.js",
   "exports": {
-    ".": "./src/index.js",
+    ".": "./index.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
-    "src",
-    "native",
-    "scripts",
+    "index.js",
     "cordis.patch.yml",
+    "Cargo.toml",
+    "src",
+    "integrations/dsh-ai-memory",
     "README.md",
-    "ai-memory.node",
-    "ai-memory.*.node",
-    "bin"
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "docs/INSTALL_DSH.md",
+    "docs/INSTALL_DSH.zh-CN.md"
   ],
   "scripts": {
-    "prepare": "node scripts/build-native.mjs",
-    "build": "node scripts/build-native.mjs",
-    "test": "node --test test/*.test.js"
+    "prepare": "node integrations/dsh-ai-memory/scripts/build-native.mjs",
+    "build": "node integrations/dsh-ai-memory/scripts/build-native.mjs",
+    "test": "node scripts/check-dsh-bundle.mjs && DSH_AI_MEMORY_SKIP_NATIVE=1 npm test --prefix integrations/dsh-ai-memory"
   },
   "engines": {
     "node": ">=20"

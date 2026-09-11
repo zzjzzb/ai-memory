@@ -1,6 +1,6 @@
 # Architecture
 
-English. 中文：[ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md) · Usage: [USAGE.md](USAGE.md)
+English. 中文：[ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md) · Usage: [USAGE.md](USAGE.md) · dsh install: [INSTALL_DSH.md](INSTALL_DSH.md)
 
 `ai-memory` sits **under** the harness. You keep the model and the tool loop. This crate keeps project-scoped memory and builds a **token-budgeted** pack for the next call.
 

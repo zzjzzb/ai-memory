@@ -6,6 +6,8 @@
 
 背书文档：[INTEGRATION_DSH.zh-CN.md](../../docs/INTEGRATION_DSH.zh-CN.md) · [English](../../docs/INTEGRATION_DSH.md)
 
+**5 分钟安装插件：** [docs/INSTALL_DSH.zh-CN.md](../../docs/INSTALL_DSH.zh-CN.md) · [English](../../docs/INSTALL_DSH.md)（`dsh plugin add github:zzjzzb/ai-memory`）。
+
 ## 故事
 
 中型公司用 **一条很长的 DeepSeek Harness 会话** 处理支持 / 运维。相关工单进同一条聊天：
@@ -41,13 +43,13 @@ npm test --prefix scenarios/dsh-support-agent
 
 ## 真机 dsh（`dsh plugin add`）
 
-已安装 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) CLI 时：
+已安装 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) CLI 时，用 **仓库根** 的 GitHub spec（与 [INSTALL_DSH.zh-CN.md](../../docs/INSTALL_DSH.zh-CN.md) 相同）：
 
 ```bash
-dsh plugin --profile support-ops add ./integrations/dsh-ai-memory
+dsh plugin --profile support-ops add github:zzjzzb/ai-memory#<commit>
 dsh --profile support-ops --dump-config    # 应出现 "# == dsh-ai-memory"
 ```
 
 在 profile 补丁里把 `projectId` 设为 `sme-support`，`tokenBudget` 可先用 `256` 对齐本模拟（真实对话再调到 8192）。把 `seed/tickets.json` 里的用户句贴进会话，让模型（或你）调用 `memory_remember`，并对 Ada 账单事实 `memory_pin`。下一轮系统提示应出现短的 **`ai-memory:pack`**，而不是整段聊天。
 
-CI **不依赖** dsh。提交 [dsh.pub](https://dsh.pub/zh/submit/) 是下一步，不在本 PR。
+CI **不依赖** dsh。提交 [dsh.pub](https://dsh.pub/zh/submit/) 可选；可安装包在 **仓库根**。见 [INSTALL_DSH.zh-CN.md](../../docs/INSTALL_DSH.zh-CN.md)。

@@ -1,0 +1,14 @@
+# Used instead of .gitignore when packing a git/npm install.
+# Do NOT ignore prepare outputs (ai-memory.node, bin/) — git install needs them.
+target/
+**/*.rs.bk
+.idea
+*.db
+*.db-wal
+*.db-shm
+node_modules/
+**/node_modules/
+benches/
+examples/
+tests/
+.git/

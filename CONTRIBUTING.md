@@ -28,7 +28,7 @@ cargo test --features sqlite-vec
 5. Update docs when you change public API or the recommended harness pattern:
    - [docs/USAGE.md](docs/USAGE.md) / [docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md)
    - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) / [docs/ARCHITECTURE.zh-CN.md](docs/ARCHITECTURE.zh-CN.md)
-   - DeepSeek Harness showcase: [docs/INTEGRATION_DSH.md](docs/INTEGRATION_DSH.md) / [docs/INTEGRATION_DSH.zh-CN.md](docs/INTEGRATION_DSH.zh-CN.md), [`integrations/dsh-ai-memory/`](integrations/dsh-ai-memory/) (`DSH_AI_MEMORY_SKIP_NATIVE=1 npm test` there), and the flagship scenario [`scenarios/dsh-support-agent/`](scenarios/dsh-support-agent/) (`cargo test --test dsh_support_scenario`)
+   - DeepSeek Harness showcase: [docs/INSTALL_DSH.md](docs/INSTALL_DSH.md) / [docs/INSTALL_DSH.zh-CN.md](docs/INSTALL_DSH.zh-CN.md), [docs/INTEGRATION_DSH.md](docs/INTEGRATION_DSH.md) / [docs/INTEGRATION_DSH.zh-CN.md](docs/INTEGRATION_DSH.zh-CN.md), [`integrations/dsh-ai-memory/`](integrations/dsh-ai-memory/) (`DSH_AI_MEMORY_SKIP_NATIVE=1 npm test` there; `node scripts/check-dsh-bundle.mjs` at repo root), and the flagship scenario [`scenarios/dsh-support-agent/`](scenarios/dsh-support-agent/) (`cargo test --test dsh_support_scenario`)
 6. Open a pull request against `main` with a short description of *why*.
 
 ## Design boundaries (please respect)
