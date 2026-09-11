@@ -92,4 +92,5 @@ cargo run --example harness_loop_sim
 
 - Not a replacement for pi / Claude / Codex / DeepSeek harnesses
 - Not a way to fit 1M tokens into one prompt
-- Not cloud sync, FFI, or a custom database engine
+- Not cloud sync or a custom database engine
+- Optional napi / CLI host for DeepSeek Harness: [INTEGRATION_DSH.md](INTEGRATION_DSH.md)

@@ -28,13 +28,15 @@ cargo test --features sqlite-vec
 5. Update docs when you change public API or the recommended harness pattern:
    - [docs/USAGE.md](docs/USAGE.md) / [docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md)
    - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) / [docs/ARCHITECTURE.zh-CN.md](docs/ARCHITECTURE.zh-CN.md)
+   - DeepSeek Harness showcase: [docs/INTEGRATION_DSH.md](docs/INTEGRATION_DSH.md) / [docs/INTEGRATION_DSH.zh-CN.md](docs/INTEGRATION_DSH.zh-CN.md) and [`integrations/dsh-ai-memory/`](integrations/dsh-ai-memory/) (`DSH_AI_MEMORY_SKIP_NATIVE=1 npm test` there)
 6. Open a pull request against `main` with a short description of *why*.
 
 ## Design boundaries (please respect)
 
 **In scope**
 
-- Project-scoped memory, `MemoryPolicy`, hybrid recall, harness adapter (`AgentSession`, tools, budgeted `ContextPack`)
+- Project-scoped memory, `MemoryPolicy`, hybrid recall, harness adapter (`AgentSession`, `HostSession`, tools, budgeted `ContextPack`)
+- Thin DeepSeek Harness Cordis plugin that calls this crate (napi or CLI — not a JS store)
 - Transparent local performance (SQLite defaults, caches, prune)
 - Offline-first defaults (no network required for tests)
 

@@ -92,4 +92,5 @@ cargo run --example harness_loop_sim
 
 - 不替代 pi / Claude / Codex / DeepSeek 编排层
 - 不能把 100 万 token 塞进一次 prompt
-- 不是云同步、FFI，也不自研存储引擎
+- 不是云同步，也不自研存储引擎
+- 可选 napi / CLI 供给 DeepSeek Harness：[INTEGRATION_DSH.zh-CN.md](INTEGRATION_DSH.zh-CN.md)

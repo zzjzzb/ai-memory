@@ -6,6 +6,7 @@ mod embedder;
 mod error;
 pub mod harness;
 mod heuristic;
+pub mod host;
 mod policy;
 mod sqlite;
 mod store;
@@ -24,6 +25,7 @@ pub use harness::{
     ToolSpec, TOOL_CONSOLIDATE, TOOL_FORGET, TOOL_PIN, TOOL_RECALL, TOOL_REMEMBER,
 };
 pub use heuristic::infer_tier;
+pub use host::{HostSession, OP_COMPACT, OP_PREFETCH};
 pub use policy::{MemoryPolicy, PromotePolicy, RecallWeights, RetentionPolicy};
 pub use sqlite::{AppliedPragmas, SqliteStore, SqliteStoreBuilder};
 pub use store::{MemoryStore, ProjectHandle};

@@ -1,6 +1,6 @@
 # Using ai-memory
 
-English. 中文：[USAGE.zh-CN.md](USAGE.zh-CN.md) · Architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
+English. 中文：[USAGE.zh-CN.md](USAGE.zh-CN.md) · Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · DeepSeek Harness: [INTEGRATION_DSH.md](INTEGRATION_DSH.md)
 
 **What it is:** a local Rust + SQLite library that stores agent memory (working / episodic / profile) per **project**. Your harness (pi, Claude-like, Codex-like) still owns the model loop. This crate stores, recalls, and packs a **small** prompt slice.
 
