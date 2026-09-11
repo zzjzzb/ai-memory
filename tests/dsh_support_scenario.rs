@@ -68,7 +68,7 @@ fn chars_per_4(text: &str) -> usize {
     text.chars().count().div_ceil(4)
 }
 
-fn require_ok(v: &Value, label: &str) -> &Value {
+fn require_ok(v: Value, label: &str) -> Value {
     assert_eq!(v["ok"], true, "{label}: {v}");
     v
 }
@@ -78,11 +78,11 @@ fn remember(host: &HostSession, note: &Note) -> String {
     if let Some(tier) = &note.tier {
         args["tier"] = json!(tier);
     }
-    let saved = require_ok(&host.dispatch("memory_remember", args), "memory_remember").clone();
+    let saved = require_ok(host.dispatch("memory_remember", args), "memory_remember");
     let id = saved["data"]["id"].as_str().expect("id").to_string();
     if note.pin {
         require_ok(
-            &host.dispatch("memory_pin", json!({ "memory_id": id })),
+            host.dispatch("memory_pin", json!({ "memory_id": id })),
             "memory_pin",
         );
     }
@@ -91,13 +91,12 @@ fn remember(host: &HostSession, note: &Note) -> String {
 
 fn prefetch(host: &HostSession, query: &str, max_tokens: usize) -> Value {
     require_ok(
-        &host.dispatch(
+        host.dispatch(
             OP_PREFETCH,
             json!({ "query": query, "max_tokens": max_tokens }),
         ),
         "prefetch_within_budget",
     )
-    .clone()
 }
 
 fn temp_db() -> String {
