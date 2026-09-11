@@ -4,6 +4,8 @@ Thin [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) **Host*
 
 Endorsement / architecture: [INTEGRATION_DSH.md](../../docs/INTEGRATION_DSH.md) · [中文](../../docs/INTEGRATION_DSH.zh-CN.md)
 
+**Flagship consumer demo:** [SME support / ops scenario](../../scenarios/dsh-support-agent/README.md) · [中文](../../scenarios/dsh-support-agent/README.zh-CN.md) — seed tickets, headless Cordis `apply(ctx)` sim, and `dsh plugin add` steps.
+
 ## Install
 
 From a clone of this repository (preferred while the bundle lives in a subdirectory):
@@ -63,6 +65,8 @@ Budgeted pack is injected as system-prompt section `ai-memory:pack` when `system
 # from repo root
 cargo test
 cd integrations/dsh-ai-memory && DSH_AI_MEMORY_SKIP_NATIVE=1 npm test
+# usage scenario (needs `cargo build --bin ai-memory` or the napi addon)
+npm test --prefix scenarios/dsh-support-agent
 ```
 
 ## Manual smoke

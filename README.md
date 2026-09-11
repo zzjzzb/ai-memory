@@ -9,6 +9,8 @@ It does **not** stuff a 1M-token transcript into the prompt, run consolidate in 
 
 **Docs:** [USAGE (EN)](docs/USAGE.md) · [用法 (中文)](docs/USAGE.zh-CN.md) · [ARCHITECTURE (EN)](docs/ARCHITECTURE.md) · [架构 (中文)](docs/ARCHITECTURE.zh-CN.md) · [DeepSeek Harness (EN)](docs/INTEGRATION_DSH.md) · [DeepSeek Harness（中文）](docs/INTEGRATION_DSH.zh-CN.md)
 
+**Flagship dsh demo:** [SME support / ops scenario](scenarios/dsh-support-agent/README.md) · [中文](scenarios/dsh-support-agent/README.zh-CN.md) — one long session, budgeted pack, not a JS memory rewrite.
+
 **Contribute:** [CONTRIBUTING.md](CONTRIBUTING.md) · [参与贡献](CONTRIBUTING.zh-CN.md) · [Issues](https://github.com/zzjzzb/ai-memory/issues) · [Pull requests](https://github.com/zzjzzb/ai-memory/pulls)
 
 ## Scenario → call → get
@@ -62,6 +64,7 @@ The intended **consumer / showcase** is [DeepSeek Harness](https://github.com/de
 
 - Endorsement / install: [INTEGRATION_DSH.md](docs/INTEGRATION_DSH.md) · [集成说明（中文）](docs/INTEGRATION_DSH.zh-CN.md)
 - Installable bundle: [`integrations/dsh-ai-memory/`](integrations/dsh-ai-memory/) (`dsh plugin add ./integrations/dsh-ai-memory`)
+- **Flagship usage scenario:** [`scenarios/dsh-support-agent/`](scenarios/dsh-support-agent/) (sidebar + billing tickets; headless `node …/sim/run.mjs` or real `dsh plugin add`)
 - Host API: `HostSession` + `ai-memory` CLI; preferred bridge is in-process **napi-rs**
 
 ## License
@@ -84,4 +87,6 @@ cargo run --example two_projects
 cargo run --example assistant_sim
 cargo run --example harness_loop_sim
 DSH_AI_MEMORY_SKIP_NATIVE=1 npm test --prefix integrations/dsh-ai-memory
+cargo build --bin ai-memory && npm test --prefix scenarios/dsh-support-agent
+node scenarios/dsh-support-agent/sim/run.mjs
 ```

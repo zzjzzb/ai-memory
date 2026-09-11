@@ -39,6 +39,8 @@ fn main() -> ai_memory::Result<()> {
 cargo run --example harness_loop_sim
 cargo run --example assistant_sim
 cargo run --example two_projects
+# dsh 旗舰场景（Cordis 插件宿主，无网页）：
+cargo build --bin ai-memory && node scenarios/dsh-support-agent/sim/run.mjs
 ```
 
 `open()` 已自动打开 WAL 等 SQLite 默认，不必再调一堆旋钮。
@@ -65,6 +67,8 @@ cargo run --example two_projects
 4. TTL 删除和层级晋升仍然要你自己调用 `consolidate`。
 
 本库不会把 100 万 token 塞进模型。它把超长 session **存在磁盘上**，每轮只喂约 2k–32k。
+
+完整例子（dsh 插件 + 种子工单）：[scenarios/dsh-support-agent/](../scenarios/dsh-support-agent/README.zh-CN.md)。
 
 ## 编排循环
 

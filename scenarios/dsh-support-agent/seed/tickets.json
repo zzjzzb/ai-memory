@@ -1,0 +1,102 @@
+{
+  "id": "sme-support-ops",
+  "title": "Mid-size company support / ops agent",
+  "summary": "One long dsh session handles related tickets. Transcript would exceed the model window; persist turns and inject prefetch_within_budget.",
+  "projects": {
+    "sme-support": { "policy": "chat", "role": "primary" },
+    "sme-hr": { "policy": "chat", "role": "isolation" }
+  },
+  "tokenBudget": 256,
+  "tightBudget": 96,
+  "pinMarker": "PINNED-BILLING-OWNER-ADA",
+  "tickets": [
+    {
+      "id": "T-1042",
+      "title": "Settings sidebar overlaps the invoice table",
+      "project": "sme-support",
+      "turns": [
+        {
+          "role": "user",
+          "tier": "working",
+          "text": "Ticket T-1042 from Maya at Acme Corp: on the Settings page the left sidebar overlaps the invoice table at 125% zoom. Started after Tuesday's nav redesign. They use the compact sidebar."
+        },
+        {
+          "role": "assistant",
+          "tier": "working",
+          "text": "Ack T-1042. Checking layout notes: Acme is on compact sidebar + dark mode. Asking Maya for viewport width and whether the overlap is over the invoice amount column or the whole table."
+        },
+        {
+          "role": "user",
+          "tier": "working",
+          "text": "Maya: viewport 1440x900, browser Chrome 128, the nav sits on top of the first two invoice columns. Hard refresh did not help. Screenshot labeled sidebar-overlap-t1042.png."
+        },
+        {
+          "role": "assistant",
+          "tier": "working",
+          "text": "Reproduced T-1042: nav width 240px, content offset still 12px, z-index 40 vs table 10. Likely missing left-padding after the compact-nav flag. Not billing-related."
+        },
+        {
+          "role": "user",
+          "tier": "working",
+          "text": "Follow-up T-1042: Maya says after the CSS hotfix the overlap is gone at 100% but still clips the filter chips at 150% zoom. Please keep this ticket open."
+        }
+      ],
+      "facts": [
+        {
+          "tier": "profile",
+          "pin": false,
+          "text": "Acme Corp (support project) prefers compact sidebar and dark mode on Settings."
+        }
+      ]
+    },
+    {
+      "id": "T-1088",
+      "title": "Invoice INV-22091 charged twice",
+      "project": "sme-support",
+      "turns": [
+        {
+          "role": "user",
+          "tier": "working",
+          "text": "Ticket T-1088 from Acme Finance: invoice INV-22091 for the September seat expansion appears twice on the billing PDF. They want the duplicate reversed, not a credit note."
+        },
+        {
+          "role": "assistant",
+          "tier": "working",
+          "text": "T-1088 is billing, not the sidebar bug. Duplicate line is the same SKU (seat-expansion-sep). Routing to the invoice owner before touching Stripe."
+        },
+        {
+          "role": "user",
+          "tier": "working",
+          "text": "Follow-up T-1088: Finance pinged again. They will not pay the duplicate. Ask the billing owner to confirm the reversal window before Friday close."
+        }
+      ],
+      "facts": [
+        {
+          "tier": "profile",
+          "pin": true,
+          "text": "PINNED-BILLING-OWNER-ADA: Acme invoice owner is Ada Chen in Finance (ada.chen@acme.example). Duplicate INV-22091 must be reversed, not credited."
+        }
+      ]
+    }
+  ],
+  "isolationNotes": [
+    {
+      "tier": "working",
+      "text": "HR only: Q3 handbook revision is due Friday. This must never appear in the support-ops pack."
+    },
+    {
+      "tier": "profile",
+      "text": "HR only: new-hire laptop standard is 14-inch, not a billing or sidebar issue."
+    }
+  ],
+  "inflate": {
+    "count": 40,
+    "ticketId": "T-1042",
+    "text": "T-1042 session dump {n}/40: layout trace viewport=1440 nav=240 content-offset=12 z-index=40 zoom-step={n}. Stored so the next model call does not receive this full diagnostic dump."
+  },
+  "observe": {
+    "sidebarQuery": "sidebar overlap settings T-1042 Maya",
+    "billingQuery": "invoice billing owner Ada PINNED-BILLING-OWNER-ADA INV-22091",
+    "isolationQuery": "sidebar overlap invoice"
+  }
+}

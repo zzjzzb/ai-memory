@@ -4,6 +4,8 @@
 
 **DeepSeek Harness（dsh）** 是 `ai-memory` 的目标 **消费方 / 展示面**。本文供他人引用：为什么本库放在 dsh **下面**、薄 Cordis 插件怎么装、以及它和扎堆的「Memory 插件」有何不同。
 
+**旗舰演示：** [scenarios/dsh-support-agent/](../scenarios/dsh-support-agent/README.zh-CN.md) — 一条很长的支持 / 运维会话（侧栏 bug + 账单 + 后续）。无头模拟不需要 dsh 网页，直接驱动 Cordis 插件。
+
 这不是官方 DeepSeek 应用商店上架，也不是用 JavaScript 重写记忆层。
 
 ## 为什么在 dsh 下面用 ai-memory
@@ -84,6 +86,20 @@ flowchart TB
 - 补丁行 `name: dsh-ai-memory`（已安装包名，不是相对路径）
 - 模块导出 `name`、`inject`、`apply(ctx)`；有 `@deepseek-ai/schemastery` 时再导出 `Config`
 
+## 旗舰用法场景
+
+中型公司的 **支持 / 运维代理** 用 *一条* 长 dsh 会话处理相关工单。若倒历史，聊天会超过约 100 万（或更小）的模型窗口。代理用 `memory_remember` 落盘，再通过 Cordis 的 `ai-memory:pack` 注入 `prefetch_within_budget`。
+
+| | |
+|--|--|
+| 包 | [`scenarios/dsh-support-agent/`](../scenarios/dsh-support-agent/README.zh-CN.md)（[English](../scenarios/dsh-support-agent/README.md)） |
+| 种子 | `T-1042` 侧栏重叠、`T-1088` 重复发票、pin `PINNED-BILLING-OWNER-ADA`、项目 `sme-hr` 隔离 |
+| 无头（CI / 无 dsh UI） | `node scenarios/dsh-support-agent/sim/run.mjs` — 假 `ctx`，与插件同一套 `apply(ctx)` |
+| Rust 冒烟 | `cargo test --test dsh_support_scenario` |
+| 真机 dsh | `dsh plugin add` 后把种子当用户句；看 `## Memory (project: sme-support, …)`，不是整段 transcript |
+
+应看到：pack 的 `tokens` 不超过预算；紧预算下 pin 仍在；`sme-hr` 不泄漏 T-1042。提交 dsh.pub 仍是下一步。
+
 ## 安装路径
 
 包：[ `integrations/dsh-ai-memory/` ](../integrations/dsh-ai-memory/)（包名 `dsh-ai-memory`）。
@@ -139,6 +155,9 @@ cargo test
 cd integrations/dsh-ai-memory && DSH_AI_MEMORY_SKIP_NATIVE=1 npm test
 # 有 Rust / Node 工具链之后：
 npm run prepare   # 在 integrations/dsh-ai-memory
+cargo build --bin ai-memory
+npm test --prefix scenarios/dsh-support-agent
+node scenarios/dsh-support-agent/sim/run.mjs
 ```
 
 手工：按上面 `dsh plugin add`，调用 `memory_remember`，下一轮模型调用应出现 `## Memory (project: …)` 段。

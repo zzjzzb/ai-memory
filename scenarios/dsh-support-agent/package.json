@@ -1,0 +1,15 @@
+{
+  "name": "dsh-support-agent-scenario",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SME support/ops usage scenario: ai-memory under DeepSeek Harness (headless sim + dsh plugin steps)",
+  "license": "MIT OR Apache-2.0",
+  "scripts": {
+    "sim": "node sim/run.mjs",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

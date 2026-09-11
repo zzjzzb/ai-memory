@@ -42,6 +42,8 @@ fn main() -> ai_memory::Result<()> {
 cargo run --example harness_loop_sim
 cargo run --example assistant_sim
 cargo run --example two_projects
+# dsh flagship scenario (Cordis plugin host, no Web UI):
+cargo build --bin ai-memory && node scenarios/dsh-support-agent/sim/run.mjs
 ```
 
 `open()` already turns on WAL and other SQLite defaults. No extra knobs.
@@ -68,6 +70,8 @@ SME agents often stay in **one session** across related issues until the chat is
 4. Still call `consolidate` yourself for TTL delete + tier promotion.
 
 This crate never puts 1M tokens into the model. It keeps 1M+ of *stored* session on disk and feeds ~2k–32k per turn.
+
+Worked example (dsh plugin + seed tickets): [scenarios/dsh-support-agent/](../scenarios/dsh-support-agent/README.md).
 
 ## Harness loop
 

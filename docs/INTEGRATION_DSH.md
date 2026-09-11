@@ -4,6 +4,8 @@ English. 中文：[INTEGRATION_DSH.zh-CN.md](INTEGRATION_DSH.zh-CN.md) · Usage:
 
 **DeepSeek Harness (dsh)** is the intended **consumer / showcase** for `ai-memory`. This document is the citeable integration story: why the crate sits *under* dsh, how the thin Cordis plugin is installed, and how that differs from the crowded “Memory plugin” category.
 
+**Flagship demo:** [scenarios/dsh-support-agent/](../scenarios/dsh-support-agent/) — one long support / ops session (sidebar bug + billing + follow-ups). Headless sim drives the Cordis plugin without the dsh Web UI.
+
 It is **not** an official DeepSeek App Store listing and **not** a rewrite of memory in JavaScript.
 
 ## Why ai-memory under dsh
@@ -84,6 +86,20 @@ Installable bundle contract (official publish tutorial):
 - Patch row `name: dsh-ai-memory` (installed package name, not a relative path)
 - Module exports `name`, `inject`, `apply(ctx)`, and a Schemastery `Config` when `@deepseek-ai/schemastery` is present
 
+## Flagship usage scenario
+
+A mid-size company **support / ops agent** keeps *one* long dsh session across related tickets. The chat would exceed a ~1M (or smaller) model window if you dumped history. The agent persists turns with `memory_remember` and injects `prefetch_within_budget` via the Cordis `ai-memory:pack` section.
+
+| | |
+|--|--|
+| Package | [`scenarios/dsh-support-agent/`](../scenarios/dsh-support-agent/) ([中文](../scenarios/dsh-support-agent/README.zh-CN.md)) |
+| Seed | `T-1042` sidebar overlap, `T-1088` duplicate invoice, pin `PINNED-BILLING-OWNER-ADA`, project `sme-hr` isolation |
+| Headless (CI / no dsh UI) | `node scenarios/dsh-support-agent/sim/run.mjs` — fake `ctx`, same `apply(ctx)` as the plugin |
+| Rust smoke | `cargo test --test dsh_support_scenario` |
+| Real dsh | `dsh plugin add` then play the seed; look for `## Memory (project: sme-support, …)` — not the full transcript |
+
+Observe: pack `tokens` stay under the budget; the pin survives a tight pack; `sme-hr` does not leak T-1042. Publishing to dsh.pub is still a later step.
+
 ## Install path
 
 Package: [`integrations/dsh-ai-memory/`](../integrations/dsh-ai-memory/) (`dsh-ai-memory` on npm-compatible installs).
@@ -139,6 +155,9 @@ cargo test
 cd integrations/dsh-ai-memory && DSH_AI_MEMORY_SKIP_NATIVE=1 npm test
 # after Rust/node toolchains:
 npm run prepare   # in integrations/dsh-ai-memory
+cargo build --bin ai-memory
+npm test --prefix scenarios/dsh-support-agent
+node scenarios/dsh-support-agent/sim/run.mjs
 ```
 
 Manual: `dsh plugin add` as above, then `memory_remember` and confirm a `## Memory (project: …)` section on the next model call.
