@@ -2,6 +2,15 @@
 
 English. 中文：[INTEGRATION_DSH.zh-CN.md](INTEGRATION_DSH.zh-CN.md) · Usage: [USAGE.md](USAGE.md) · Architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
 
+**Install in 5 minutes (copy-paste):** [INSTALL_DSH.md](INSTALL_DSH.md) · [中文](INSTALL_DSH.zh-CN.md)
+
+```bash
+dsh plugin --profile web add github:zzjzzb/ai-memory#<commit>
+dsh --profile web --dump-config    # look for "# == dsh-ai-memory"
+```
+
+Pin `<commit>` (see the install guide). First git add often needs `allowBuilds` for `dsh-ai-memory` — also in that guide.
+
 **DeepSeek Harness (dsh)** is the intended **consumer / showcase** for `ai-memory`. This document is the citeable integration story: why the crate sits *under* dsh, how the thin Cordis plugin is installed, and how that differs from the crowded “Memory plugin” category.
 
 **Flagship demo:** [scenarios/dsh-support-agent/](../scenarios/dsh-support-agent/) — one long support / ops session (sidebar bug + billing + follow-ups). Headless sim drives the Cordis plugin without the dsh Web UI.
@@ -80,11 +89,11 @@ flowchart TB
     Store --> DB
 ```
 
-Installable bundle contract (official publish tutorial):
+Installable bundle contract (official publish tutorial) — **repository root**:
 
-- `package.json` → `dsh.bundle.patch` → `./cordis.patch.yml`
+- Root `package.json` → `dsh.bundle.patch` → `./cordis.patch.yml`
 - Patch row `name: dsh-ai-memory` (installed package name, not a relative path)
-- Module exports `name`, `inject`, `apply(ctx)`, and a Schemastery `Config` when `@deepseek-ai/schemastery` is present
+- Module (root `index.js` re-exports `integrations/dsh-ai-memory`) exports `name`, `inject`, `apply(ctx)`, and a Schemastery `Config` when `@deepseek-ai/schemastery` is present
 
 ## Flagship usage scenario
 
@@ -96,34 +105,35 @@ A mid-size company **support / ops agent** keeps *one* long dsh session across r
 | Seed | `T-1042` sidebar overlap, `T-1088` duplicate invoice, pin `PINNED-BILLING-OWNER-ADA`, project `sme-hr` isolation |
 | Headless (CI / no dsh UI) | `node scenarios/dsh-support-agent/sim/run.mjs` — fake `ctx`, same `apply(ctx)` as the plugin |
 | Rust smoke | `cargo test --test dsh_support_scenario` |
-| Real dsh | `dsh plugin add` then play the seed; look for `## Memory (project: sme-support, …)` — not the full transcript |
+| Real dsh | [INSTALL_DSH.md](INSTALL_DSH.md): `dsh plugin add github:zzjzzb/ai-memory#<commit>` then play the seed; look for `## Memory (project: sme-support, …)` — not the full transcript |
 
-Observe: pack `tokens` stay under the budget; the pin survives a tight pack; `sme-hr` does not leak T-1042. Publishing to dsh.pub is still a later step.
+Observe: pack `tokens` stay under the budget; the pin survives a tight pack; `sme-hr` does not leak T-1042. Catalog listing at [dsh.pub](https://dsh.pub/en/submit/) is optional (see [INSTALL_DSH.md](INSTALL_DSH.md)).
 
 ## Install path
 
-Package: [`integrations/dsh-ai-memory/`](../integrations/dsh-ai-memory/) (`dsh-ai-memory` on npm-compatible installs).
+**Users:** follow **[INSTALL_DSH.md](INSTALL_DSH.md)** (prerequisites, `allowBuilds`, verify, config, troubleshooting).
+
+The installable bundle is the **repository root** (`package.json` → `dsh.bundle.patch` → `./cordis.patch.yml`). The Cordis Host in [`integrations/dsh-ai-memory/`](../integrations/dsh-ai-memory/) is re-exported from root `index.js`. Rust `Cargo.toml` stays the memory source of truth.
 
 ```bash
-# from a repo checkout
-dsh plugin --profile demo add ./integrations/dsh-ai-memory
-dsh --profile demo --dump-config    # "# == dsh-ai-memory"
+# GitHub (recommended; pin a commit)
+dsh plugin --profile web add github:zzjzzb/ai-memory#<commit>
+dsh --profile web --dump-config    # "# == dsh-ai-memory"
+
+# from a repo checkout (same root bundle)
+dsh plugin --profile web add .
 ```
 
-Git (subdirectory of this repo). pnpm ≥10 will refuse `prepare` until you allow the build — `prepare` compiles Rust (napi + CLI). Official dsh docs: copy the package key into the profile `pnpm-workspace.yaml` and re-run `add`:
+Git install runs **`prepare`** (napi + `ai-memory` CLI). pnpm ≥10 will refuse that script until you allow the build. Official dsh docs: copy the package key into the profile `pnpm-workspace.yaml` and re-run `add`:
 
 ```yaml
 allowBuilds:
   dsh-ai-memory: true
 ```
 
-```bash
-dsh plugin --profile demo add github:zzjzzb/ai-memory#path:integrations/dsh-ai-memory
-```
+Developers may still `dsh plugin add ./integrations/dsh-ai-memory` from a clone. Do **not** use `github:zzjzzb/ai-memory#path:integrations/dsh-ai-memory` as the user path — a subdirectory git fetch does not ship the Rust crate that `prepare` must compile.
 
-Pin a commit (`github:zzjzzb/ai-memory#<sha>:path:integrations/dsh-ai-memory`) so a later push cannot change install-time code.
-
-**Discovery (optional, later):** add the GitHub topic `dsh-plugin`. Submit to [dsh.pub](https://dsh.pub/en/submit/) only when you want a catalog row. dsh.pub’s first-version flow prefers a bundle at the **repository root**; this subdirectory is the in-repo showcase, not a claimed App Store listing.
+**Discovery (optional, later):** the GitHub topic `dsh-plugin` is already set. Submit to [dsh.pub](https://dsh.pub/en/submit/) only when you want a catalog row. dsh.pub’s flow expects a bundle at the **repository root**; that is now this package.
 
 ## Binding strategy
 
@@ -152,15 +162,16 @@ The plugin must use this crate. Tradeoffs:
 
 ```bash
 cargo test
+node scripts/check-dsh-bundle.mjs
 cd integrations/dsh-ai-memory && DSH_AI_MEMORY_SKIP_NATIVE=1 npm test
 # after Rust/node toolchains:
-npm run prepare   # in integrations/dsh-ai-memory
+npm run prepare   # repo root or integrations/dsh-ai-memory
 cargo build --bin ai-memory
 npm test --prefix scenarios/dsh-support-agent
 node scenarios/dsh-support-agent/sim/run.mjs
 ```
 
-Manual: `dsh plugin add` as above, then `memory_remember` and confirm a `## Memory (project: …)` section on the next model call.
+Manual: [INSTALL_DSH.md](INSTALL_DSH.md) — `dsh plugin add github:zzjzzb/ai-memory#<commit>`, then `memory_remember` and confirm a `## Memory (project: …)` section on the next model call.
 
 ## What we will not claim
 

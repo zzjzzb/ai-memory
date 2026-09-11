@@ -63,6 +63,22 @@ test('CLI bridge forwards crate ops and never invents recall', () => {
   assert.ok(spawned[0].argv.includes('/tmp/m.db'))
 })
 
+test('createBridge uses CLI when napi .node is missing', () => {
+  const spawn = (bin, argv) => ({
+    status: 0,
+    stdout: JSON.stringify({ ok: true, name: argv[4], data: { text: 'cli-pack' }, error: null }),
+    stderr: '',
+  })
+  const bridge = createBridge(
+    { ...resolveConfig({}), dbPath: '/tmp/x.db', cliPath: '/opt/ai-memory' },
+    { native: null, spawn, cliPath: '/opt/ai-memory' },
+  )
+  assert.equal(bridge.kind, 'cli')
+  const result = bridge.dispatch('memory_recall', { text: 'dark mode' })
+  assert.equal(result.ok, true)
+  assert.equal(result.data.text, 'cli-pack')
+})
+
 test('CLI start failure tells the user to build Rust', () => {
   const spawn = () => ({ error: new Error('ENOENT'), status: 1, stdout: '', stderr: '' })
   const result = createCliBridge(

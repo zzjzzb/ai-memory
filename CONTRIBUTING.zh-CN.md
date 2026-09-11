@@ -28,7 +28,7 @@ cargo test --features sqlite-vec
 5. 动到公开 API 或推荐接入方式时，同步改文档：
    - [docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md) / [docs/USAGE.md](docs/USAGE.md)
    - [docs/ARCHITECTURE.zh-CN.md](docs/ARCHITECTURE.zh-CN.md) / [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-   - DeepSeek Harness 展示：[docs/INTEGRATION_DSH.zh-CN.md](docs/INTEGRATION_DSH.zh-CN.md) / [docs/INTEGRATION_DSH.md](docs/INTEGRATION_DSH.md)、[`integrations/dsh-ai-memory/`](integrations/dsh-ai-memory/)（目录内 `DSH_AI_MEMORY_SKIP_NATIVE=1 npm test`），以及旗舰场景 [`scenarios/dsh-support-agent/`](scenarios/dsh-support-agent/)（`cargo test --test dsh_support_scenario`）
+   - DeepSeek Harness 展示：[docs/INSTALL_DSH.zh-CN.md](docs/INSTALL_DSH.zh-CN.md) / [docs/INSTALL_DSH.md](docs/INSTALL_DSH.md)、[docs/INTEGRATION_DSH.zh-CN.md](docs/INTEGRATION_DSH.zh-CN.md) / [docs/INTEGRATION_DSH.md](docs/INTEGRATION_DSH.md)、[`integrations/dsh-ai-memory/`](integrations/dsh-ai-memory/)（目录内 `DSH_AI_MEMORY_SKIP_NATIVE=1 npm test`；仓库根 `node scripts/check-dsh-bundle.mjs`），以及旗舰场景 [`scenarios/dsh-support-agent/`](scenarios/dsh-support-agent/)（`cargo test --test dsh_support_scenario`）
 6. 向 `main` 提 PR，写清楚**为什么**要改。
 
 ## 设计边界（请遵守）

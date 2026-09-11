@@ -1,0 +1,6 @@
+# Used instead of .gitignore when this subdirectory is packed.
+# Keep prepare outputs so git install can load napi / CLI.
+node_modules/
+*.db
+*.db-wal
+*.db-shm

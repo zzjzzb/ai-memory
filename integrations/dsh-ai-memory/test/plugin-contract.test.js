@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createRequire } from 'node:module'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -19,6 +19,42 @@ test('package.json declares an installable dsh.bundle.patch', () => {
   const patch = fs.readFileSync(patchPath, 'utf8')
   assert.match(patch, /name:\s*dsh-ai-memory/)
   assert.match(patch, /id:\s*dsh-ai-memory/)
+})
+
+test('repo root is a github:zzjzzb/ai-memory dsh bundle (dsh.bundle.patch)', () => {
+  const repoRoot = path.resolve(root, '../..')
+  const rootPkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'))
+  assert.equal(rootPkg.name, 'dsh-ai-memory')
+  assert.equal(rootPkg.dsh.bundle.patch, './cordis.patch.yml')
+  assert.equal(
+    rootPkg.scripts.prepare,
+    'node integrations/dsh-ai-memory/scripts/build-native.mjs',
+  )
+  const patchPath = path.join(repoRoot, rootPkg.dsh.bundle.patch)
+  assert.ok(fs.existsSync(patchPath), 'root cordis.patch.yml must exist')
+  const patch = fs.readFileSync(patchPath, 'utf8')
+  assert.match(patch, /name:\s*dsh-ai-memory/)
+  assert.match(patch, /id:\s*dsh-ai-memory/)
+  const nestedPatch = fs.readFileSync(path.join(root, 'cordis.patch.yml'), 'utf8')
+  assert.equal(patch.trim(), nestedPatch.trim())
+  assert.ok(fs.existsSync(path.join(repoRoot, 'index.js')))
+})
+
+test('root index.js re-exports apply(ctx) for github: installs', async () => {
+  const repoRoot = path.resolve(root, '../..')
+  const { apply, name } = await import(pathToFileURL(path.join(repoRoot, 'index.js')).href)
+  assert.equal(name, 'dsh-ai-memory')
+  const registered = []
+  apply(
+    {
+      tools: { register(tool) { registered.push(tool) } },
+      systemPrompt: { section() { return () => {} } },
+      effect(fn) { fn() },
+      on() {},
+    },
+    { dbPath: ':memory:', projectId: 'root-export', tokenBudget: 64, cliPath: '/dev/null/ai-memory' },
+  )
+  assert.ok(registered.some((t) => t.name === 'memory_remember'))
 })
 
 test('apply(ctx) registers crate tool names without a full dsh runtime', async () => {

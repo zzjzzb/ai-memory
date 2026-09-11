@@ -7,6 +7,21 @@
 
 It does **not** stuff a 1M-token transcript into the prompt, run consolidate in the background, or talk to an LLM.
 
+## Install into DeepSeek Harness
+
+Copy-paste guide (pin commit, `allowBuilds`, what you should see):
+
+- English: [docs/INSTALL_DSH.md](docs/INSTALL_DSH.md)
+- 中文: [docs/INSTALL_DSH.zh-CN.md](docs/INSTALL_DSH.zh-CN.md)
+
+```bash
+dsh plugin --profile web add github:zzjzzb/ai-memory#<commit>
+```
+
+Get `<commit>` with `git ls-remote https://github.com/zzjzzb/ai-memory.git refs/heads/main` (left column). After add: `dsh --profile web --dump-config` must show `# == dsh-ai-memory`.
+
+Root `package.json` is the dsh bundle (**npm name `dsh-ai-memory`**). `Cargo.toml` is the Rust crate (**package name `ai-memory`**). Same repo, two manifests, not two products.
+
 **Docs:** [USAGE (EN)](docs/USAGE.md) · [用法 (中文)](docs/USAGE.zh-CN.md) · [ARCHITECTURE (EN)](docs/ARCHITECTURE.md) · [架构 (中文)](docs/ARCHITECTURE.zh-CN.md) · [DeepSeek Harness (EN)](docs/INTEGRATION_DSH.md) · [DeepSeek Harness（中文）](docs/INTEGRATION_DSH.zh-CN.md)
 
 **Flagship dsh demo:** [SME support / ops scenario](scenarios/dsh-support-agent/README.md) · [中文](scenarios/dsh-support-agent/README.zh-CN.md) — one long session, budgeted pack, not a JS memory rewrite.
@@ -62,10 +77,12 @@ Isolation is `project_id`. Two sessions on one file do not leak recall.
 
 The intended **consumer / showcase** is [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): a thin Cordis `apply(ctx)` plugin over **this Rust crate** (SQLite stays here; we do not rewrite memory in JS, and we do not pitch auto-LLM extraction).
 
-- Endorsement / install: [INTEGRATION_DSH.md](docs/INTEGRATION_DSH.md) · [集成说明（中文）](docs/INTEGRATION_DSH.zh-CN.md)
-- Installable bundle: [`integrations/dsh-ai-memory/`](integrations/dsh-ai-memory/) (`dsh plugin add ./integrations/dsh-ai-memory`)
+Install command and verify steps: **[Install into DeepSeek Harness](#install-into-deepseek-harness)** / [docs/INSTALL_DSH.md](docs/INSTALL_DSH.md).
+
+- Endorsement / architecture: [INTEGRATION_DSH.md](docs/INTEGRATION_DSH.md) · [集成说明（中文）](docs/INTEGRATION_DSH.zh-CN.md)
+- Host implementation: [`integrations/dsh-ai-memory/`](integrations/dsh-ai-memory/) (re-exported from the repo root)
 - **Flagship usage scenario:** [`scenarios/dsh-support-agent/`](scenarios/dsh-support-agent/) (sidebar + billing tickets; headless `node …/sim/run.mjs` or real `dsh plugin add`)
-- Host API: `HostSession` + `ai-memory` CLI; preferred bridge is in-process **napi-rs**
+- Host API: `HostSession` + `ai-memory` CLI; preferred bridge is in-process **napi-rs** (CLI fallback if the `.node` addon is missing)
 
 ## License
 
@@ -87,6 +104,9 @@ cargo run --example two_projects
 cargo run --example assistant_sim
 cargo run --example harness_loop_sim
 DSH_AI_MEMORY_SKIP_NATIVE=1 npm test --prefix integrations/dsh-ai-memory
+node scripts/check-dsh-bundle.mjs
 cargo build --bin ai-memory && npm test --prefix scenarios/dsh-support-agent
 node scenarios/dsh-support-agent/sim/run.mjs
 ```
+
+`package.json` at the repo root is only the dsh bundle. Rust-only work does not need `npm install`. If you do run npm scripts and want to skip compiling the host: `DSH_AI_MEMORY_SKIP_NATIVE=1`.
