@@ -60,7 +60,7 @@ async function main() {
   console.log('✓ pinned billing owner survives the tight pack')
   console.log('✓ sme-hr recall does not leak the support sidebar ticket')
   console.log('✓ tools + ai-memory:pack match the dsh-ai-memory Cordis plugin')
-  console.log('\nReal dsh UI: see README.md (`dsh plugin add`). Publishing to dsh.pub is a later step.')
+  console.log('\nReal dsh: docs/INSTALL_DSH.md (`dsh plugin add github:zzjzzb/ai-memory`). dsh.pub submit is optional.')
 }
 
 main().catch((err) => {

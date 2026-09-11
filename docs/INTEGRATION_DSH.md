@@ -107,7 +107,7 @@ A mid-size company **support / ops agent** keeps *one* long dsh session across r
 | Rust smoke | `cargo test --test dsh_support_scenario` |
 | Real dsh | [INSTALL_DSH.md](INSTALL_DSH.md): `dsh plugin add github:zzjzzb/ai-memory#<commit>` then play the seed; look for `## Memory (project: sme-support, …)` — not the full transcript |
 
-Observe: pack `tokens` stay under the budget; the pin survives a tight pack; `sme-hr` does not leak T-1042. Publishing to dsh.pub is still a later step.
+Observe: pack `tokens` stay under the budget; the pin survives a tight pack; `sme-hr` does not leak T-1042. Catalog listing at [dsh.pub](https://dsh.pub/en/submit/) is optional (see [INSTALL_DSH.md](INSTALL_DSH.md)).
 
 ## Install path
 

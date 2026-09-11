@@ -107,7 +107,7 @@ flowchart TB
 | Rust 冒烟 | `cargo test --test dsh_support_scenario` |
 | 真机 dsh | [INSTALL_DSH.zh-CN.md](INSTALL_DSH.zh-CN.md)：`dsh plugin add github:zzjzzb/ai-memory#<commit>` 后把种子当用户句；看 `## Memory (project: sme-support, …)`，不是整段 transcript |
 
-应看到：pack 的 `tokens` 不超过预算；紧预算下 pin 仍在；`sme-hr` 不泄漏 T-1042。提交 dsh.pub 仍是下一步。
+应看到：pack 的 `tokens` 不超过预算；紧预算下 pin 仍在；`sme-hr` 不泄漏 T-1042。目录上架 [dsh.pub](https://dsh.pub/zh/submit/) 可选（见 [INSTALL_DSH.zh-CN.md](INSTALL_DSH.zh-CN.md)）。
 
 ## 安装路径
 
