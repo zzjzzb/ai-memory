@@ -2,191 +2,212 @@
 
 English. 中文：[INSTALL_DSH.zh-CN.md](INSTALL_DSH.zh-CN.md)
 
-**Goal:** one command adds this repo as a real dsh plugin. After that, a long support chat stores turns in **Rust + SQLite** and injects a **token-budgeted** slice (`## Memory (project: …)`), not the full transcript.
+One command adds this **repository root** as a dsh plugin. Long chats store turns in **Rust + SQLite** and inject a **token-budgeted** slice (`## Memory (project: …)`), not the full transcript.
 
-This is a Cordis **Host** over the `ai-memory` crate. It is **not** a TypeScript rewrite of memory and **not** an auto-LLM “extract facts” plugin.
-
-**Skim once → copy-paste the blocks → you should see `# == dsh-ai-memory` in `--dump-config`.**
+This is a Cordis Host over the `ai-memory` crate — **not** a TypeScript memory rewrite and **not** an auto-LLM “extract facts” plugin.
 
 ---
 
-## 0. What you are adding (30 seconds)
+## 5-minute path (happy path only)
 
-Imagine one DeepSeek Harness session that handles related tickets all day (sidebar bug, then a duplicate invoice, then a follow-up). Dumping the chat into the model would blow past a ~1M (or smaller) window.
+Do these in order. Use the **same** profile name everywhere (`web` below). If step 3 fails with *Ignored build scripts*, that is expected the first time — do step 4, then re-run step 3.
 
-With this plugin the agent:
-
-1. Calls `memory_remember` / `memory_pin` as it works.
-2. Before the next model call, dsh injects system-prompt section `ai-memory:pack` from Rust `prefetch_within_budget`.
-3. Isolation is `projectId`. Two projects on the same `.db` file do not leak recall.
-
-Flagship walkthrough (no Web UI required): [scenarios/dsh-support-agent/](../scenarios/dsh-support-agent/README.md).
-
----
-
-## 1. Prerequisites
-
-You need a machine that can run **dsh** and compile this repo once (git install runs a `prepare` script that builds Rust).
-
-| Need | Why | Check |
-|------|-----|--------|
-| **Node.js 20+** | Plugin `engines`; dsh itself often wants a current Node | `node -v` → `v20` or newer |
-| **pnpm** | `dsh plugin add` forwards to pnpm in the profile directory | `pnpm -v` |
-| **dsh CLI** | Installs the bundle into a **profile** | `dsh --help` |
-| **Git** | `github:zzjzzb/ai-memory` is a git fetch | `git --version` |
-| **Rust `cargo`** | `prepare` builds the napi addon + `ai-memory` CLI | `cargo --version` (crate MSRV **1.74+**) |
-| **Network** | Public GitHub clone | Browser: [github.com/zzjzzb/ai-memory](https://github.com/zzjzzb/ai-memory) |
-
-This repository is **dual-purpose**: `Cargo.toml` is the Rust crate (`ai-memory`); root `package.json` is the **dsh bundle** (`dsh-ai-memory`). You do not install two products.
-
-### 1.1 Install dsh if `dsh --help` fails
-
-Follow the official project: [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness). Typical paths:
+### 1. Tools
 
 ```bash
-# Example: run the published CLI via npx (starts the web app; also provides `dsh` in that environment)
-npx @deepseek-ai/dsh --help
-
-# Or install from the harness repo / your existing dsh setup so `dsh` is on PATH.
-# You need `pnpm` on PATH as well — plugin add is pnpm under the hood.
+node -v          # v20 or newer
+pnpm -v          # dsh plugin add forwards to pnpm
+dsh --help       # DeepSeek Harness CLI
+cargo --version  # rustc 1.74+ (prepare compiles Rust)
 ```
 
-If your team already boots `dsh web` or `dsh --profile web`, you are done with this step.
+Missing `dsh`? Install from [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) first. Missing `cargo`? [rustup.rs](https://rustup.rs/).
 
-Official bundle contract (why `package.json` + `cordis.patch.yml` matter, and the `allowBuilds` rule): [Package and install a plugin](https://deepseek-harness.github.io/deepseek-harness/en/develop/basic/publish) · [中文](https://deepseek-harness.github.io/deepseek-harness/develop/basic/publish).
-
-### 1.2 Create or reuse a profile
-
-A **profile** is one runnable composition (plugins + config), usually under:
-
-```text
-~/.dsh/profiles/<name>/          # default on Linux / macOS
-$DSH_HOME/profiles/<name>/       # if you set DSH_HOME
-```
-
-The **web** profile is what most people use for the browser UI. First use of `dsh plugin --profile web …` **creates** it if missing.
-
-```bash
-# Reuse the web UI profile (recommended)
-dsh plugin --profile web list
-
-# Or a dedicated profile (created on first plugin add)
-dsh plugin --profile support-ops list
-```
-
-You should see a profile directory appear (or an existing one). Remember the **name** (`web`, `support-ops`, …). Every command below uses `--profile <that-name>`.
-
----
-
-## 2. One-command install from GitHub
-
-**Pin a commit.** A later `main` push must not silently change what compiles on your machine. Copy a full SHA from [Commits](https://github.com/zzjzzb/ai-memory/commits/main) or:
+### 2. Pin a commit SHA
 
 ```bash
 git ls-remote https://github.com/zzjzzb/ai-memory.git refs/heads/main
 ```
 
-Then install (replace `web` and `<commit>`):
+**Expected** (SHA will differ; copy the **left** column, 40 hex characters):
 
-```bash
-dsh plugin --profile web add github:zzjzzb/ai-memory#<commit>
+```text
+f3ce0b5c1a2b3c4d5e6f7890aabbccddeeff0011	refs/heads/main
 ```
 
-Floating `main` (not recommended for production):
+Call that value `COMMIT`. Paste it into the next command. Do not use floating `main` on a machine you care about.
+
+### 3. Add the plugin
 
 ```bash
-dsh plugin --profile web add github:zzjzzb/ai-memory
+dsh plugin --profile web add github:zzjzzb/ai-memory#COMMIT
 ```
 
-That spec installs the **repository root**. Root `package.json` declares `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }`. dsh then appends `dsh-ai-memory` to the profile’s `dsh.profile.bundles` list. You do **not** add a second `github:…#path:integrations/…` spec.
+Replace `COMMIT` with the SHA from step 2 (no `#` doubling).
 
-### 2.1 `allowBuilds` / `prepare` (expected the first time)
+**Expected on success** (cargo takes a few minutes the first time; lines may interleave with pnpm):
 
-Git install fetches **source**, not a prebuilt `.node` file. Nothing runs the package’s `build` script. This repo therefore ships a **`prepare`** script: it compiles the napi addon and the `ai-memory` CLI from the Rust crate in the same checkout.
-
-**pnpm ≥10 refuses that `prepare` until you allow it.** The first `add` often **fails**. dsh / pnpm will print a package key. Copy **that exact key** into the profile’s `pnpm-workspace.yaml`. For this plugin the key is `dsh-ai-memory`:
-
-```bash
-# Profile file (create it if missing). Default path:
-#   ~/.dsh/profiles/web/pnpm-workspace.yaml
+```text
+[dsh-ai-memory] building ai-memory CLI (Rust source of truth)…
+[dsh-ai-memory] wrote bin/ai-memory
+[dsh-ai-memory] building napi addon…
+[dsh-ai-memory] wrote ai-memory.node (from libai_memory_node.so)
+[dsh-ai-memory] prepare: using napi (CLI also built)
 ```
+
+macOS may say `libai_memory_node.dylib`; Windows `ai_memory_node.dll`. That is still success.
+
+**Napi fail-soft (still success):** if the addon fails but the CLI was written:
+
+```text
+[dsh-ai-memory] napi crate build failed — plugin will use the CLI fallback if present
+[dsh-ai-memory] prepare: using CLI fallback (napi addon not built). Runtime still uses the Rust crate, not a JS store.
+```
+
+**Expected first-time failure (pnpm ≥10 blocked `prepare`):**
+
+```text
+[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: dsh-ai-memory
+
+Run "pnpm approve-builds" to pick which dependencies should be allowed to run scripts.
+```
+
+dsh may also tell you to copy that package key into the profile `pnpm-workspace.yaml`. Go to step 4, then **re-run the exact add** from this step.
+
+<a id="allow-prepare"></a>
+
+### 4. Allow `prepare` (only if step 3 printed Ignored build scripts)
+
+Profile file (create if missing):
+
+```text
+~/.dsh/profiles/web/pnpm-workspace.yaml
+```
+
+If you set `DSH_HOME`, use `$DSH_HOME/profiles/web/pnpm-workspace.yaml` instead.
+
+**Full file you can paste** when the file does not exist yet:
 
 ```yaml
+packages:
+  - '.'
 allowBuilds:
   dsh-ai-memory: true
 ```
 
-If the file already has other keys (`packages:`, …), add `allowBuilds` as a **sibling** at the top level — do not nest it inside `packages`.
+If the file **already exists**, add `allowBuilds` at the **top level** (sibling of `packages`, not nested inside it). Keep other keys. The package key must be exactly `dsh-ai-memory` (what pnpm printed), not the GitHub URL.
 
-Then **re-run the same add**:
+Then re-run step 3’s add command (same `COMMIT`).
 
-```bash
-dsh plugin --profile web add github:zzjzzb/ai-memory#<commit>
-```
+Treat `allowBuilds` as permission to run this package’s install-time code on your machine, outside the agent sandbox. Official rule: [Package and install a plugin](https://deepseek-harness.github.io/deepseek-harness/en/develop/basic/publish).
 
-You should see cargo compile (first time: a few minutes). Treat `allowBuilds` as permission to run this package’s install-time code on your machine, **outside** the agent sandbox. Only allow sources you trust. Official wording: [Installing from GitHub: the build-script catch](https://deepseek-harness.github.io/deepseek-harness/en/develop/basic/publish).
+### 5. Confirm the layer
 
-Need a compiler? Install Rust from [rustup.rs](https://rustup.rs/), then retry `add`.
-
-### 2.2 Local clone (same bundle, no GitHub fetch)
-
-From a checkout of this repo:
-
-```bash
-git clone https://github.com/zzjzzb/ai-memory.git
-cd ai-memory
-dsh plugin --profile web add .
-dsh --profile web --dump-config    # look for "# == dsh-ai-memory"
-```
-
-Developers can still `dsh plugin add ./integrations/dsh-ai-memory` from a clone; **users** should use the root spec above so `github:zzjzzb/ai-memory` matches dsh.pub.
-
----
-
-## 3. Verify (you should see this)
-
-### 3.1 Bundle layer (required)
+Use the **same** `--profile` as `plugin add`:
 
 ```bash
 dsh --profile web --dump-config
 ```
 
-Search the output for a layer heading like:
+**Expected** (search for this heading; surrounding YAML can vary):
 
 ```text
 # == dsh-ai-memory
 ```
 
-You should also see the inserted row (`id: dsh-ai-memory`, `name: dsh-ai-memory`) with defaults `projectId: dsh`, `tokenBudget: 8192`.
+You should also see a plugin row like:
 
-If that heading is missing, the package installed as a **plain dependency** and did **not** activate. See [Troubleshooting](#8-troubleshooting).
-
-Restart the profile after a successful add so the new layer is composed (`dsh --profile web` / `dsh web`).
-
-### 3.2 Optional: tools + first remember / recall
-
-1. Start dsh with the same profile (`dsh --profile web` or `dsh web`).
-2. In a session, the model should have tools named like the crate: `memory_remember`, `memory_recall`, `memory_forget`, `memory_pin`, `memory_consolidate`, `memory_compact`.
-3. Ask (or call the tool): remember `User prefers dark mode` as profile.
-4. Next user message, look at the **system prompt** (or debug dump). You want a short section:
-
-```text
-## Memory (project: dsh, N hits)
-…
+```yaml
+- id: dsh-ai-memory
+  name: dsh-ai-memory
+  config:
+    projectId: dsh
+    tokenBudget: 8192
+    policy: chat
+    prefetchEnabled: true
 ```
 
-not the entire chat history. That text is `ContextPack.render()` from Rust, injected as Cordis section `ai-memory:pack`.
+If `# == dsh-ai-memory` is missing, the package is a plain dependency and the layer did **not** activate — see [Troubleshooting](#troubleshooting).
 
-No dsh UI? Run the headless sim in [section 7](#7-flagship-scenario-headless--how-it-maps-to-real-dsh).
+Restart so the layer is composed: `dsh --profile web` or `dsh web`.
+
+### 6. First use: remember one fact + budget pack
+
+Start dsh with `--profile web`. In a chat, paste this:
+
+```text
+Call tool memory_remember with text "User prefers dark mode" and tier "profile".
+Then call tool memory_recall with text "dark mode".
+```
+
+The agent should invoke **these exact tool names**:
+
+| Step | Tool | Arguments |
+|------|------|-----------|
+| 1 | `memory_remember` | `{ "text": "User prefers dark mode", "tier": "profile" }` |
+| 2 | `memory_recall` | `{ "text": "dark mode" }` |
+
+Other crate tools (later): `memory_forget`, `memory_pin`, `memory_consolidate`, `memory_compact`.
+
+On the **next** model call, the system prompt should contain Cordis section `ai-memory:pack`, looking like:
+
+```text
+## Memory (project: dsh, 1 hits)
+- [profile id=mem-… score=…] User prefers dark mode
+```
+
+That is `prefetch_within_budget`, not the full chat. If you see the entire transcript instead, something else is dumping history — this plugin did not.
+
+No Web UI? [Flagship headless sim](#flagship-sim).
 
 ---
 
-## 4. Config knobs (copy-paste)
+## What you installed (30 seconds)
 
-The bundle layer sets defaults. **Later layers win**, and a patch **replaces the whole `config` object** (it does not deep-merge keys). Override in the **profile** `cordis.patch.yml` (same directory as the profile `package.json`), not by editing this repo.
+One long support session (sidebar bug, then a duplicate invoice) would blow past a ~1M (or smaller) window if you dumped the chat. This plugin:
+
+1. Persists turns with `memory_remember` / `memory_pin`.
+2. Injects `ai-memory:pack` from Rust `prefetch_within_budget` before the next model call.
+3. Isolates by `projectId`. Two projects on one `.db` do not leak recall.
+
+Root `package.json` npm name is **`dsh-ai-memory`**. `Cargo.toml` crate name is **`ai-memory`**. Same repository.
+
+---
+
+## Prerequisites (if a check in step 1 failed)
+
+| Need | Why | Check |
+|------|-----|--------|
+| **Node.js 20+** | Plugin `engines`; wrong Node often fails to load `.node` | `node -v` |
+| **pnpm** | `dsh plugin add` = pnpm in the profile directory | `pnpm -v` |
+| **dsh CLI** | Writes the profile + bundle list | `dsh --help` |
+| **Git** | `github:zzjzzb/ai-memory` is a git fetch | `git --version` |
+| **Rust `cargo`** | `prepare` builds napi and/or the CLI | `cargo --version` (MSRV **1.74+**) |
+| **Network** | Public GitHub | [github.com/zzjzzb/ai-memory](https://github.com/zzjzzb/ai-memory) |
+
+`npx @deepseek-ai/dsh --help` is one way to get the CLI if it is not on PATH. You still need `pnpm` for `dsh plugin add`.
+
+A **profile** lives at `~/.dsh/profiles/<name>/` (or `$DSH_HOME/profiles/<name>/`). `web` is the usual UI profile; first `dsh plugin --profile web …` creates it.
+
+Local clone instead of GitHub:
+
+```bash
+git clone https://github.com/zzjzzb/ai-memory.git
+cd ai-memory
+dsh plugin --profile web add .
+dsh --profile web --dump-config
+```
+
+Do **not** use `github:zzjzzb/ai-memory#path:integrations/dsh-ai-memory` as the user path — that git fetch does not include the Rust crate `prepare` must compile.
+
+---
+
+## Config knobs (copy-paste)
+
+Later layers win. A patch **replaces the whole `config` object** (no deep-merge). Edit the **profile** `cordis.patch.yml`, not this repo.
 
 ```yaml
-# ~/.dsh/profiles/web/cordis.patch.yml  (example)
+# ~/.dsh/profiles/web/cordis.patch.yml
 - insert:
     - id: dsh-ai-memory
       name: dsh-ai-memory
@@ -197,24 +218,24 @@ The bundle layer sets defaults. **Later layers win**, and a patch **replaces the
         policy: chat
         prefetchEnabled: true
         sectionOrder: 40
-        # cliPath: /usr/local/bin/ai-memory   # only if napi failed and you have a CLI
+        # cliPath: /usr/local/bin/ai-memory
 ```
 
 | Field | Default | Meaning |
 |-------|---------|---------|
-| `dbPath` | `~/.local/share/ai-memory/dsh.db` | SQLite file. `open()` applies WAL defaults. Empty → env `AI_MEMORY_DB` or that default. Use `:memory:` only for tests. |
-| `projectId` | `dsh` | Isolation key (`WHERE project_id = ?`). Support vs HR should be different ids. |
-| `tokenBudget` | `8192` | Cap for `prefetch_within_budget` (`ceil(chars/4)` by default). Try `256` to match the flagship sim; use 2k–32k in real chats. |
-| `policy` | `chat` | `chat` / `journal` / `default` — used **when the project is created**. |
-| `prefetchEnabled` | `true` | Register system-prompt section `ai-memory:pack`. |
+| `dbPath` | `~/.local/share/ai-memory/dsh.db` | SQLite file. Empty → `AI_MEMORY_DB` or that default. `:memory:` is for tests. |
+| `projectId` | `dsh` | Isolation key. Support vs HR need different ids. |
+| `tokenBudget` | `8192` | `prefetch_within_budget` cap (`ceil(chars/4)`). `256` matches the flagship sim. |
+| `policy` | `chat` | `chat` / `journal` / `default` — used when the project is **created**. |
+| `prefetchEnabled` | `true` | Register `ai-memory:pack`. |
 | `sectionOrder` | `40` | Prompt section order (persona is typically 0). |
-| `cliPath` | (auto) | Override `ai-memory` CLI if the napi `.node` addon did not load. |
+| `cliPath` | (auto) | Force the `ai-memory` CLI if napi `.node` did not load. |
 
-Do **not** also insert the same `id: dsh-ai-memory` row if you only wanted the bundle layer — duplicate `id` can crash boot. Override by `id` in the profile patch as above (one row).
+Do **not** insert a second `id: dsh-ai-memory` row on top of the bundle layer — duplicate `id` can crash boot. Override by `id` with **one** row as above.
 
 ---
 
-## 5. How this differs from me-too Memory plugins
+## How this differs from me-too Memory plugins
 
 | Typical Memory plugin | This plugin |
 |----------------------|-------------|
@@ -222,87 +243,73 @@ Do **not** also insert the same `id: dsh-ai-memory` row if you only wanted the b
 | JS/Python reimplementation of memory | **Rust crate** is the source of truth |
 | “Supports 1M-token prompts” | Stores the long session; **packs a slice** |
 | One global bag of facts | `projectId` isolation |
-| Hidden vector-store magic | Transparent SQLite defaults on `open()` |
-
-dsh may grow its own extraction features. This integration does **not** depend on them.
 
 ---
 
-## 6. Binding (napi vs CLI)
+## Binding (napi vs CLI)
 
-1. **napi-rs** (`ai-memory-node`) — preferred. In-process `HostSession.dispatch`.
-2. **`ai-memory` CLI** — same JSON envelope, subprocess. Used if the `.node` file is missing or fails to load.
+1. **napi-rs** — preferred. In-process `HostSession.dispatch`.
+2. **`ai-memory` CLI** — same JSON envelope, subprocess, if `ai-memory.node` is missing or fails to load.
 
-`prepare` tries to build **both**. You should not rewrite recall in JavaScript.
+`prepare` tries both and **succeeds if either exists**. Nothing reimplements recall in JavaScript.
 
 ---
 
-## 7. Flagship scenario (headless) + how it maps to real dsh
+<a id="flagship-sim"></a>
 
-Same story as a real support agent: tickets **T-1042** (sidebar overlap) and **T-1088** (duplicate invoice), pin **Ada Chen** as billing owner, project `sme-hr` must not leak T-1042.
+## Flagship scenario (headless)
 
-### 7.1 Headless sim (no dsh CLI / no Web UI)
-
-From a clone of this repo:
+Tickets **T-1042** (sidebar) and **T-1088** (duplicate invoice), pin Ada Chen, project `sme-hr` must not leak T-1042.
 
 ```bash
 cargo build --bin ai-memory
-# optional in-process addon:
-# cargo build -p ai-memory-node
-# or: npm run prepare
-
 node scenarios/dsh-support-agent/sim/run.mjs
-# same checks:
 npm test --prefix scenarios/dsh-support-agent
 cargo test --test dsh_support_scenario
 ```
 
-**What you should see:** pack `tokens <= tokenBudget`; header `## Memory (project: sme-support, …)`; tight budget still contains `PINNED-BILLING-OWNER-ADA`; `sme-hr` pack must **not** contain T-1042. Details: [scenarios/dsh-support-agent/README.md](../scenarios/dsh-support-agent/README.md).
+**You should see:** `tokens <= tokenBudget`; `## Memory (project: sme-support, …)`; tight pack still contains `PINNED-BILLING-OWNER-ADA`; `sme-hr` pack has **no** T-1042. Details: [scenarios/dsh-support-agent/README.md](../scenarios/dsh-support-agent/README.md).
 
-The sim builds a fake Cordis `ctx` and calls the same `apply(ctx)` as dsh. That is enough to prove the plugin without the Web UI.
-
-### 7.2 Map the sim onto a real profile
-
-```bash
-dsh plugin --profile support-ops add github:zzjzzb/ai-memory#<commit>
-# allowBuilds as in §2.1 if needed, then re-add
-```
-
-Put the [config example](#4-config-knobs-copy-paste) in that profile with `projectId: sme-support` and `tokenBudget: 256` (or 8192 for real chats). Play lines from [`scenarios/dsh-support-agent/seed/tickets.json`](../scenarios/dsh-support-agent/seed/tickets.json). After remember/pin, the system prompt should show the short `ai-memory:pack` section — same shape the sim printed.
+Map onto a real profile: same `github:zzjzzb/ai-memory#COMMIT` add, set `projectId: sme-support` in the profile patch, play [`seed/tickets.json`](../scenarios/dsh-support-agent/seed/tickets.json).
 
 ---
 
-## 8. Troubleshooting
+<a id="troubleshooting"></a>
+
+## Troubleshooting
 
 | Symptom | Likely cause | What to do |
 |---------|--------------|------------|
-| First `dsh plugin add github:…` fails mentioning ignored build scripts / `Ignored build scripts` | pnpm ≥10 blocked `prepare` | Add `allowBuilds: { dsh-ai-memory: true }` to the **profile** `pnpm-workspace.yaml`, re-run **the same** `add` |
-| `prepare` / cargo error: `rustc` / `cargo` not found | No Rust toolchain | Install via [rustup](https://rustup.rs/), `cargo --version`, re-run `add` |
-| Build fails with edition / MSRV errors | Node is fine; **Rust is too old** | Need rustc **1.74+** (see crate `rust-version`). `rustup update` |
-| `node: … unexpected token` / plugin does not load | Node too old | `node -v` must be **≥ 20** |
-| `dsh: command not found` | CLI not on PATH | Install DeepSeek Harness; use the same environment that already runs `dsh web` |
-| Git fetch 401 / `Repository not found` | Not logged in to GitHub, or typo | Repo is **public**. Check the spec `github:zzjzzb/ai-memory`. For private forks, `gh auth login` or a git credential helper |
-| `pnpm` not found | dsh plugin add needs pnpm | Install [pnpm](https://pnpm.io/installation), ensure it is on PATH |
-| `--dump-config` has **no** `# == dsh-ai-memory` | Package has no `dsh.bundle.patch`, wrong spec, or add did not reconcile | Confirm you added **root** `github:zzjzzb/ai-memory` (not a random subdirectory URL). `dsh plugin --profile web list`. Re-add. |
-| Layer name is there but tools missing | Profile not restarted; or `inject` failed | Restart `dsh --profile web`. Check boot logs for module resolve errors |
-| Duplicate loader `id: dsh-ai-memory` | Bundle layer **and** a manual insert of the same id | Use **one** path: `dsh plugin add` **or** a manual patch row, not both. Remove the extra insert |
-| Addon missing; CLI errors `failed to start` | `prepare` skipped or failed; napi fallback to CLI also missing | Allow builds, re-add, or `npm run prepare` in a clone. Confirm `ai-memory.node` and/or `bin/ai-memory` exist under the installed package |
-| napi fails to load, CLI works | Wrong Node ABI / platform `.node` | CLI fallback is expected. Rebuild on this machine (`prepare`) or set `cliPath` |
-| Memory empty / wrong tickets | Wrong `projectId` or `dbPath` | Isolation is by project. Check profile config. Default db is `~/.local/share/ai-memory/dsh.db` |
-| Pack looks like the full chat | You are not using this plugin’s section, or budget is huge **and** you also dump history elsewhere | Look for `ai-memory:pack` / `## Memory (project:`. Do not paste the transcript into the system prompt yourself |
+| `Ignored build scripts: dsh-ai-memory` / `ERR_PNPM_IGNORED_BUILDS` | pnpm ≥10 blocked `prepare` | Paste [step 4](#allow-prepare) into the **profile** `pnpm-workspace.yaml`, re-run the **same** `add` |
+| `allowBuilds` set but add still ignores scripts | Wrong file / nested under `packages` / wrong key | File must be **that profile’s** `pnpm-workspace.yaml`. Key `dsh-ai-memory: true` at top level. Not `ignoredBuiltDependencies` |
+| `cargo: command not found` / `rustc` missing during prepare | No Rust toolchain | [rustup](https://rustup.rs/), then re-add. JS-only tests: `DSH_AI_MEMORY_SKIP_NATIVE=1` |
+| napi compile error, then `prepare: using CLI fallback` | Addon failed; CLI built | **OK.** Plugin uses the CLI. Confirm `--dump-config` still has `# == dsh-ai-memory` |
+| prepare: neither napi nor CLI produced | Both Rust builds failed | `rustc` **1.74+** (`rustup update`). Re-add. Check disk space |
+| `SyntaxError` / `Unexpected token` loading the plugin | **Wrong Node** | `node -v` must be **≥ 20**. Rebuild `.node` on this Node (`prepare`) |
+| `.node` present but `invalid ELF` / `wrong architecture` | Addon built on another OS/CPU | Rebuild on this machine. Or rely on CLI fallback (`bin/ai-memory`) / set `cliPath` |
+| `ai-memory CLI failed to start` | `.node` missing **and** CLI missing/not executable | `allowBuilds` + re-add, or `npm run prepare` in a clone. Look under the installed package for `ai-memory.node` and `bin/ai-memory` |
+| `dsh: command not found` | CLI not on PATH | Same environment that already runs `dsh web` |
+| Git 401 / `Repository not found` | Typo or private-fork credentials | Public spec is `github:zzjzzb/ai-memory`. `gh auth login` only for private forks |
+| `pnpm: command not found` | dsh plugin add needs pnpm | [pnpm.io/installation](https://pnpm.io/installation) |
+| `--dump-config` has **no** `# == dsh-ai-memory` | Layer not activated | You added **root** `github:zzjzzb/ai-memory`, not a subdirectory URL? `dsh plugin --profile web list`. Re-add after `allowBuilds`. Confirm root `package.json` has `dsh.bundle.patch` |
+| Added plugin but dump-config looks empty / old | **Profile name mismatch** | `dsh plugin --profile web add` then **`dsh --profile web --dump-config`**. Bare `dsh --dump-config` is a different profile. Typo `web` vs `Web` vs `default` |
+| Layer heading present, tools missing | Profile not restarted; inject failed | Restart `dsh --profile web`. Boot logs: cannot resolve `dsh-ai-memory` |
+| Duplicate loader `id: dsh-ai-memory` | Bundle layer **and** a manual insert | One path only: `dsh plugin add` **or** a manual patch row |
+| Empty memory / wrong tickets | Wrong `projectId` or `dbPath` | Default db `~/.local/share/ai-memory/dsh.db`. Isolation is per project |
+| Pack looks like the full chat | Other prompt dumping, or you are not looking at `ai-memory:pack` | Search `## Memory (project:`. Do not paste the transcript yourself |
 
 ---
 
-## 9. Next step: submit to dsh.pub (optional)
+## Next step: dsh.pub (optional)
 
-You do **not** need the catalog to use the plugin. GitHub topic **`dsh-plugin`** is already on [zzjzzb/ai-memory](https://github.com/zzjzzb/ai-memory).
+You do **not** need the catalog to use the plugin. Topic **`dsh-plugin`** is already on the repo.
 
-When you want a directory row, submit the **repository URL** (bundle at **root**, which this install path now satisfies):
+When you want a directory row, submit the repository URL yourself:
 
-- English: [https://dsh.pub/en/submit/](https://dsh.pub/en/submit/)
-- 中文: [https://dsh.pub/zh/submit/](https://dsh.pub/zh/submit/)
+- [https://dsh.pub/en/submit/](https://dsh.pub/en/submit/)
+- [https://dsh.pub/zh/submit/](https://dsh.pub/zh/submit/)
 
-dsh.pub reads root package metadata, checks patch / entry / README / license, and does **not** run your code. This document does not submit for you.
+This guide does not submit for you.
 
 ---
 

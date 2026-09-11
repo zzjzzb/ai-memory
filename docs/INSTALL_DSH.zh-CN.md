@@ -2,189 +2,212 @@
 
 中文。[English](INSTALL_DSH.md)
 
-**目标：** 一条命令把本仓库加成真正的 dsh 插件。之后，很长的支持会话会把回合存进 **Rust + SQLite**，再注入一段 **有 token 预算** 的切片（`## Memory (project: …)`），而不是整段 transcript。
+一条命令把本仓库 **根目录** 加成 dsh 插件。长对话把回合存进 **Rust + SQLite**，再注入一段 **有 token 预算** 的切片（`## Memory (project: …)`），而不是整段 transcript。
 
-这是套在 `ai-memory` crate 上面的 Cordis **Host**。**不是**用 TypeScript 重写记忆，**也不是**自动让 LLM「抽事实」的 Memory 插件。
-
-**浏览一遍 → 复制命令 → 在 `--dump-config` 里看到 `# == dsh-ai-memory` 即成功。**
+这是套在 `ai-memory` crate 上的 Cordis Host —— **不是**用 TypeScript 重写记忆，**也不是**自动让 LLM「抽事实」的插件。
 
 ---
 
-## 0. 你在装什么（30 秒）
+## 5 分钟路径（只走成功路径）
 
-想象一条 DeepSeek Harness 会话：白天连续处理相关工单（侧栏挡住发票表，然后重复扣款，然后跟进）。如果把聊天全文塞进模型，会撑爆约 100 万（或更小）的窗口。
+按顺序做。全程使用 **同一个** profile 名（下面用 `web`）。若第 3 步因 *Ignored build scripts* 失败，这是第一次的常见情况 —— 做第 4 步，再重跑第 3 步。
 
-装上本插件后，代理会：
-
-1. 边干边调用 `memory_remember` / `memory_pin`。
-2. 下一轮模型调用前，dsh 把系统提示里的 `ai-memory:pack` 段换成 Rust 的 `prefetch_within_budget` 结果。
-3. 隔离键是 `projectId`。同一个 `.db` 上两个项目，召回不会串。
-
-旗舰走查（不需要网页）：[scenarios/dsh-support-agent/](../scenarios/dsh-support-agent/README.zh-CN.md)。
-
----
-
-## 1. 前置条件
-
-机器要能跑 **dsh**，并且能把本仓库编译一次（git 安装会跑 `prepare`，里面编 Rust）。
-
-| 需要 | 为什么 | 怎么确认 |
-|------|--------|----------|
-| **Node.js 20+** | 插件 `engines`；dsh 本身也常用较新的 Node | `node -v` → `v20` 或更新 |
-| **pnpm** | `dsh plugin add` 在 profile 目录里转发给 pnpm | `pnpm -v` |
-| **dsh CLI** | 把组合包装进 **profile** | `dsh --help` |
-| **Git** | `github:zzjzzb/ai-memory` 是 git 拉取 | `git --version` |
-| **Rust `cargo`** | `prepare` 编 napi 插件 + `ai-memory` CLI | `cargo --version`（crate MSRV **1.74+**） |
-| **网络** | 拉公开 GitHub 仓库 | 浏览器打开 [github.com/zzjzzb/ai-memory](https://github.com/zzjzzb/ai-memory) |
-
-本仓库是 **双用途**：`Cargo.toml` 是 Rust crate（`ai-memory`）；根目录 `package.json` 才是 **dsh 组合包**（`dsh-ai-memory`）。不是两套产品。
-
-### 1.1 若 `dsh --help` 失败：先装 dsh
-
-以官方项目为准：[deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)。常见做法：
+### 1. 工具
 
 ```bash
-# 示例：用 npx 跑已发布的 CLI（同时会起 web；该环境里要有 dsh）
-npx @deepseek-ai/dsh --help
-
-# 或从 harness 仓库 / 你们现有的 dsh 安装里把 `dsh` 放进 PATH。
-# 还需要 PATH 上有 `pnpm` —— 加插件底层就是 pnpm。
+node -v          # v20 或更新
+pnpm -v          # dsh plugin add 会转发给 pnpm
+dsh --help       # DeepSeek Harness CLI
+cargo --version  # rustc 1.74+（prepare 会编 Rust）
 ```
 
-如果团队已经在跑 `dsh web` 或 `dsh --profile web`，这一步已经完成。
+没有 `dsh`？先装 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)。没有 `cargo`？用 [rustup.rs](https://rustup.rs/)。
 
-官方组合包约定（为什么需要 `package.json` + `cordis.patch.yml`，以及 `allowBuilds` 规则）：[打包与安装插件](https://deepseek-harness.github.io/deepseek-harness/develop/basic/publish) · [English](https://deepseek-harness.github.io/deepseek-harness/en/develop/basic/publish)。
-
-### 1.2 创建或沿用一个 profile
-
-**profile** 是一套可启动的组合（插件 + 配置），一般在：
-
-```text
-~/.dsh/profiles/<name>/          # Linux / macOS 默认
-$DSH_HOME/profiles/<name>/       # 若设置了 DSH_HOME
-```
-
-浏览器 UI 多用 **web** 这个 profile。第一次执行 `dsh plugin --profile web …` 时，若还没有就会 **自动创建**。
-
-```bash
-# 沿用 web UI profile（推荐）
-dsh plugin --profile web list
-
-# 或单独一个 profile（第一次 plugin add 时创建）
-dsh plugin --profile support-ops list
-```
-
-你会看到 profile 目录出现（或本来就有）。记住 **名字**（`web`、`support-ops` …）。下面每条命令都用 `--profile <这个名字>`。
-
----
-
-## 2. 从 GitHub 一条命令安装
-
-**请钉死 commit。** 之后 `main` 再 push，不应悄悄改你机器上编译出来的东西。从 [Commits](https://github.com/zzjzzb/ai-memory/commits/main) 复制完整 SHA，或：
+### 2. 钉死 commit SHA
 
 ```bash
 git ls-remote https://github.com/zzjzzb/ai-memory.git refs/heads/main
 ```
 
-然后安装（把 `web` 和 `<commit>` 换成你的）：
+**应看到**（SHA 会变；复制 **左列** 40 位十六进制）：
 
-```bash
-dsh plugin --profile web add github:zzjzzb/ai-memory#<commit>
+```text
+f3ce0b5c1a2b3c4d5e6f7890aabbccddeeff0011	refs/heads/main
 ```
 
-跟踪 `main`（生产环境不推荐）：
+把这个值叫 `COMMIT`，贴进下一条命令。不要在你在意的机器上跟踪浮动的 `main`。
+
+### 3. 添加插件
 
 ```bash
-dsh plugin --profile web add github:zzjzzb/ai-memory
+dsh plugin --profile web add github:zzjzzb/ai-memory#COMMIT
 ```
 
-这个 spec 装的是 **仓库根目录**。根上的 `package.json` 声明了 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }`。dsh 会把 `dsh-ai-memory` 追加进该 profile 的 `dsh.profile.bundles`。你 **不必** 再加 `github:…#path:integrations/…`。
+把 `COMMIT` 换成第 2 步的 SHA（不要写成两个 `#`）。
 
-### 2.1 `allowBuilds` / `prepare`（第一次多半会碰到）
+**成功时应看到**（第一次 cargo 可能要几分钟；日志会和 pnpm 交错）：
 
-git 安装拉到的是 **源码**，不是预编译的 `.node`。不会跑包里的 `build` 脚本。所以本仓库提供 **`prepare`**：在同一次 checkout 里用 Rust crate 编译 napi 插件和 `ai-memory` CLI。
-
-**pnpm ≥10 在你明确允许之前会拒绝跑这个 `prepare`。** 第一次 `add` 常常 **失败**。dsh / pnpm 会打印一个包名键。把 **打印出来的那个键** 原样写进该 profile 的 `pnpm-workspace.yaml`。对本插件来说，键就是 `dsh-ai-memory`：
-
-```bash
-# profile 文件（没有就新建）。默认路径：
-#   ~/.dsh/profiles/web/pnpm-workspace.yaml
+```text
+[dsh-ai-memory] building ai-memory CLI (Rust source of truth)…
+[dsh-ai-memory] wrote bin/ai-memory
+[dsh-ai-memory] building napi addon…
+[dsh-ai-memory] wrote ai-memory.node (from libai_memory_node.so)
+[dsh-ai-memory] prepare: using napi (CLI also built)
 ```
+
+macOS 可能是 `libai_memory_node.dylib`，Windows 是 `ai_memory_node.dll`。都算成功。
+
+**napi 失败但仍算成功：** 插件编失败、CLI 写成功时：
+
+```text
+[dsh-ai-memory] napi crate build failed — plugin will use the CLI fallback if present
+[dsh-ai-memory] prepare: using CLI fallback (napi addon not built). Runtime still uses the Rust crate, not a JS store.
+```
+
+**第一次常见失败（pnpm ≥10 拦住 `prepare`）：**
+
+```text
+[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: dsh-ai-memory
+
+Run "pnpm approve-builds" to pick which dependencies should be allowed to run scripts.
+```
+
+dsh 也可能提示：把该包名键写进 profile 的 `pnpm-workspace.yaml`。去做第 4 步，然后 **原样重跑** 本步的 add。
+
+<a id="allow-prepare"></a>
+
+### 4. 允许 `prepare`（仅当第 3 步打印了 Ignored build scripts）
+
+profile 文件（没有就新建）：
+
+```text
+~/.dsh/profiles/web/pnpm-workspace.yaml
+```
+
+若设置了 `DSH_HOME`，则用 `$DSH_HOME/profiles/web/pnpm-workspace.yaml`。
+
+**文件还不存在时，整份可贴：**
 
 ```yaml
+packages:
+  - '.'
 allowBuilds:
   dsh-ai-memory: true
 ```
 
-若文件里已有别的键（`packages:` 等），把 `allowBuilds` 放在 **顶层并列**，不要塞进 `packages` 里面。
+若文件 **已存在**，把 `allowBuilds` 加在 **顶层**（和 `packages` 并列，不要嵌进 `packages`）。保留其它键。包名键必须是 pnpm 打印的 `dsh-ai-memory`，不是 GitHub URL。
 
-然后 **用同一条 add 再跑一遍**：
+然后重跑第 3 步的 add（同一个 `COMMIT`）。
 
-```bash
-dsh plugin --profile web add github:zzjzzb/ai-memory#<commit>
-```
+把 `allowBuilds` 理解成：允许这个包在安装时在你的机器上执行代码，而且不在 agent 沙箱里。官方规则：[打包与安装插件](https://deepseek-harness.github.io/deepseek-harness/develop/basic/publish)。
 
-这时应看到 cargo 编译（第一次可能要几分钟）。把 `allowBuilds` 理解成：允许这个包在 **安装时** 在你的机器上执行代码，而且 **不在** agent 沙箱里。只对你信任的源码授权。官方表述：[从 GitHub 安装：构建脚本这一关](https://deepseek-harness.github.io/deepseek-harness/develop/basic/publish)。
+### 5. 确认层已激活
 
-没有编译器？先到 [rustup.rs](https://rustup.rs/) 安装 Rust，再重试 `add`。
-
-### 2.2 本地 clone（同一套组合包，不拉 GitHub）
-
-```bash
-git clone https://github.com/zzjzzb/ai-memory.git
-cd ai-memory
-dsh plugin --profile web add .
-dsh --profile web --dump-config    # 找 "# == dsh-ai-memory"
-```
-
-开发者仍可从 clone 里 `dsh plugin add ./integrations/dsh-ai-memory`；**用户**请用上面的根 spec，这样 `github:zzjzzb/ai-memory` 才和 dsh.pub 一致。
-
----
-
-## 3. 验证（你应当看到这些）
-
-### 3.1 组合包层（必做）
+`--profile` 必须和 `plugin add` **相同**：
 
 ```bash
 dsh --profile web --dump-config
 ```
 
-在输出里搜索类似：
+**应看到**（搜这个标题；周围 YAML 可能略有不同）：
 
 ```text
 # == dsh-ai-memory
 ```
 
-还应看到插入的那一行（`id: dsh-ai-memory`，`name: dsh-ai-memory`），默认 `projectId: dsh`、`tokenBudget: 8192`。
+还应看到类似：
 
-若没有这个标题，说明包装上了但只是 **普通依赖**，**没有**激活层。见 [故障排除](#8-故障排除)。
-
-`add` 成功后请重启该 profile，新层才会组合进去（`dsh --profile web` / `dsh web`）。
-
-### 3.2 可选：工具列表 + 第一次 remember / recall
-
-1. 用同一个 profile 启动 dsh（`dsh --profile web` 或 `dsh web`）。
-2. 会话里应出现与 crate 同名的工具：`memory_remember`、`memory_recall`、`memory_forget`、`memory_pin`、`memory_consolidate`、`memory_compact`。
-3. 让模型（或你直接调工具）把 `User prefers dark mode` 记成 profile。
-4. 下一句用户话时看 **系统提示**（或调试 dump）。你要的是一小段：
-
-```text
-## Memory (project: dsh, N hits)
-…
+```yaml
+- id: dsh-ai-memory
+  name: dsh-ai-memory
+  config:
+    projectId: dsh
+    tokenBudget: 8192
+    policy: chat
+    prefetchEnabled: true
 ```
 
-而不是整段聊天。那段文字来自 Rust 的 `ContextPack.render()`，以 Cordis 段 `ai-memory:pack` 注入。
+若没有 `# == dsh-ai-memory`，说明包装上了但只是普通依赖，**没有**激活层 —— 见 [故障排除](#troubleshooting)。
 
-没有 dsh 界面？做 [第 7 节](#7-旗舰场景无头模拟--如何对应到真机-dsh) 的无头模拟即可。
+重启以使层生效：`dsh --profile web` 或 `dsh web`。
+
+### 6. 第一次使用：记住一条事实 + 预算 pack
+
+用 `--profile web` 启动 dsh。在对话里粘贴：
+
+```text
+Call tool memory_remember with text "User prefers dark mode" and tier "profile".
+Then call tool memory_recall with text "dark mode".
+```
+
+代理应调用 **这些工具名**：
+
+| 步骤 | 工具 | 参数 |
+|------|------|------|
+| 1 | `memory_remember` | `{ "text": "User prefers dark mode", "tier": "profile" }` |
+| 2 | `memory_recall` | `{ "text": "dark mode" }` |
+
+其它 crate 工具（以后用）：`memory_forget`、`memory_pin`、`memory_consolidate`、`memory_compact`。
+
+**下一轮** 模型调用时，系统提示应含 Cordis 段 `ai-memory:pack`，形如：
+
+```text
+## Memory (project: dsh, 1 hits)
+- [profile id=mem-… score=…] User prefers dark mode
+```
+
+这是 `prefetch_within_budget`，不是整段聊天。若看到完整 transcript，那是别处在倒历史 —— 不是本插件。
+
+没有网页？做 [旗舰无头模拟](#flagship-sim)。
 
 ---
 
-## 4. 配置旋钮（可复制）
+## 你装上了什么（30 秒）
 
-组合包层给出默认值。**后写的层覆盖先写的**，而且补丁会 **整份替换 `config` 对象**（不会按 key 深合并）。请改 **profile** 里的 `cordis.patch.yml`（和该 profile 的 `package.json` 同一目录），不要改本仓库。
+一条很长的支持会话（侧栏 bug，然后重复发票）若倒进模型，会撑爆约 100 万（或更小）的窗口。本插件会：
+
+1. 用 `memory_remember` / `memory_pin` 落盘。
+2. 下一轮模型调用前注入 Rust `prefetch_within_budget` 的 `ai-memory:pack`。
+3. 按 `projectId` 隔离。同一个 `.db` 上两个项目，召回不会串。
+
+根目录 `package.json` 的 npm 名是 **`dsh-ai-memory`**。`Cargo.toml` 的 crate 名是 **`ai-memory`**。同一个仓库。
+
+---
+
+## 前置条件（第 1 步检查失败时）
+
+| 需要 | 为什么 | 怎么确认 |
+|------|--------|----------|
+| **Node.js 20+** | 插件 `engines`；Node 不对常常加载不了 `.node` | `node -v` |
+| **pnpm** | `dsh plugin add` = 在 profile 目录里跑 pnpm | `pnpm -v` |
+| **dsh CLI** | 写 profile 和 bundle 列表 | `dsh --help` |
+| **Git** | `github:zzjzzb/ai-memory` 是 git 拉取 | `git --version` |
+| **Rust `cargo`** | `prepare` 编 napi 和/或 CLI | `cargo --version`（MSRV **1.74+**） |
+| **网络** | 公开 GitHub | [github.com/zzjzzb/ai-memory](https://github.com/zzjzzb/ai-memory) |
+
+若 CLI 不在 PATH，可用 `npx @deepseek-ai/dsh --help`。`dsh plugin add` 仍然需要 `pnpm`。
+
+**profile** 一般在 `~/.dsh/profiles/<name>/`（或 `$DSH_HOME/profiles/<name>/`）。`web` 是常用 UI profile；第一次 `dsh plugin --profile web …` 会创建它。
+
+不拉 GitHub、用本地 clone：
+
+```bash
+git clone https://github.com/zzjzzb/ai-memory.git
+cd ai-memory
+dsh plugin --profile web add .
+dsh --profile web --dump-config
+```
+
+**不要**把 `github:zzjzzb/ai-memory#path:integrations/dsh-ai-memory` 当作用户路径 —— 那种 git 拉取带不上 `prepare` 必须编译的 Rust crate。
+
+---
+
+## 配置旋钮（可复制）
+
+后写的层覆盖先写的。补丁会 **整份替换 `config` 对象**（不按 key 深合并）。改 **profile** 的 `cordis.patch.yml`，不要改本仓库。
 
 ```yaml
-# ~/.dsh/profiles/web/cordis.patch.yml  （示例）
+# ~/.dsh/profiles/web/cordis.patch.yml
 - insert:
     - id: dsh-ai-memory
       name: dsh-ai-memory
@@ -195,24 +218,24 @@ dsh --profile web --dump-config
         policy: chat
         prefetchEnabled: true
         sectionOrder: 40
-        # cliPath: /usr/local/bin/ai-memory   # 仅当 napi 失败且你已有 CLI
+        # cliPath: /usr/local/bin/ai-memory
 ```
 
 | 字段 | 默认 | 含义 |
 |------|------|------|
-| `dbPath` | `~/.local/share/ai-memory/dsh.db` | SQLite 文件。`open()` 会套 WAL 等默认。空则用环境变量 `AI_MEMORY_DB` 或上述默认。`:memory:` 只给测试用。 |
-| `projectId` | `dsh` | 隔离键（`WHERE project_id = ?`）。支持 vs 人事应使用不同 id。 |
-| `tokenBudget` | `8192` | `prefetch_within_budget` 上限（默认 `ceil(字符数/4)`）。可用 `256` 对齐旗舰模拟；真实对话用 2k–32k。 |
+| `dbPath` | `~/.local/share/ai-memory/dsh.db` | SQLite 文件。空则用 `AI_MEMORY_DB` 或上述默认。`:memory:` 只给测试。 |
+| `projectId` | `dsh` | 隔离键。支持 vs 人事要用不同 id。 |
+| `tokenBudget` | `8192` | `prefetch_within_budget` 上限（`ceil(字符/4)`）。`256` 对齐旗舰模拟。 |
 | `policy` | `chat` | `chat` / `journal` / `default` —— **仅在创建项目时** 使用。 |
-| `prefetchEnabled` | `true` | 注册系统提示段 `ai-memory:pack`。 |
+| `prefetchEnabled` | `true` | 注册 `ai-memory:pack`。 |
 | `sectionOrder` | `40` | 提示段顺序（persona 一般是 0）。 |
-| `cliPath` | （自动） | napi 的 `.node` 没加载成功时，覆盖 `ai-memory` CLI 路径。 |
+| `cliPath` | （自动） | napi 的 `.node` 没加载时强制走 `ai-memory` CLI。 |
 
-如果只想靠组合包层生效，**不要**再手动插入同一条 `id: dsh-ai-memory` —— 重复 `id` 可能让启动崩溃。要覆盖配置，用上面这种按 `id` 写的 **一行** 即可。
+**不要**在组合包层之外再插一条 `id: dsh-ai-memory` —— 重复 `id` 可能让启动崩溃。要覆盖配置，只用上面这一行。
 
 ---
 
-## 5. 和扎堆的 Memory 插件有何不同
+## 和扎堆的 Memory 插件有何不同
 
 | 常见 Memory 插件 | 本插件 |
 |------------------|--------|
@@ -220,87 +243,73 @@ dsh --profile web --dump-config
 | 用 JS/Python 再实现一套记忆 | **Rust crate** 才是真相源 |
 | 「支持 100 万 token prompt」 | 长 session 存在盘上；每次只 **打包切片** |
 | 全局一个事实袋子 | `projectId` 隔离 |
-| 藏起来的向量库魔法 | `open()` 上的透明 SQLite 默认 |
-
-dsh 以后也许会自带抽取。本集成 **不依赖** 那套。
 
 ---
 
-## 6. 绑定（napi vs CLI）
+## 绑定（napi vs CLI）
 
-1. **napi-rs**（`ai-memory-node`）——首选。同进程 `HostSession.dispatch`。
-2. **`ai-memory` CLI** ——同一套 JSON 信封，子进程。`.node` 缺失或加载失败时用。
+1. **napi-rs** —— 首选。同进程 `HostSession.dispatch`。
+2. **`ai-memory` CLI** —— 同一套 JSON 信封，子进程；当 `ai-memory.node` 缺失或加载失败时用。
 
-`prepare` 会尽量把 **两样都编出来**。不要在 JavaScript 里重写召回。
+`prepare` 会两样都试，**有一样成功就算成功**。不会在 JavaScript 里重写召回。
 
 ---
 
-## 7. 旗舰场景（无头）以及如何对应到真机 dsh
+<a id="flagship-sim"></a>
 
-和真支持代理同一套故事：工单 **T-1042**（侧栏重叠）、**T-1088**（重复发票），pin 账单负责人 **Ada Chen**，项目 `sme-hr` 不得泄漏 T-1042。
+## 旗舰场景（无头）
 
-### 7.1 无头模拟（不需要 dsh CLI / 网页）
-
-在本仓库 clone 里：
+工单 **T-1042**（侧栏）、**T-1088**（重复发票），pin Ada Chen，项目 `sme-hr` 不得泄漏 T-1042。
 
 ```bash
 cargo build --bin ai-memory
-# 可选：同进程插件
-# cargo build -p ai-memory-node
-# 或：npm run prepare
-
 node scenarios/dsh-support-agent/sim/run.mjs
-# 同一套检查：
 npm test --prefix scenarios/dsh-support-agent
 cargo test --test dsh_support_scenario
 ```
 
-**应看到：** pack 的 `tokens <= tokenBudget`；标题 `## Memory (project: sme-support, …)`；紧预算下仍有 `PINNED-BILLING-OWNER-ADA`；`sme-hr` 的 pack **不能**出现 T-1042。细节：[scenarios/dsh-support-agent/README.zh-CN.md](../scenarios/dsh-support-agent/README.zh-CN.md)。
+**应看到：** `tokens <= tokenBudget`；`## Memory (project: sme-support, …)`；紧 pack 仍含 `PINNED-BILLING-OWNER-ADA`；`sme-hr` 的 pack **没有** T-1042。细节：[scenarios/dsh-support-agent/README.zh-CN.md](../scenarios/dsh-support-agent/README.zh-CN.md)。
 
-模拟器用假的 Cordis `ctx` 调用和 dsh 同一套 `apply(ctx)`。没有 Web UI 也足以证明插件。
-
-### 7.2 把模拟映射到真 profile
-
-```bash
-dsh plugin --profile support-ops add github:zzjzzb/ai-memory#<commit>
-# 若需要，按 §2.1 写 allowBuilds，再 add 一次
-```
-
-在该 profile 里贴 [配置示例](#4-配置旋钮可复制)，`projectId: sme-support`，`tokenBudget: 256`（真实对话可改 8192）。把 [`scenarios/dsh-support-agent/seed/tickets.json`](../scenarios/dsh-support-agent/seed/tickets.json) 里的用户句贴进会话。remember / pin 之后，系统提示应出现短的 `ai-memory:pack`，形状和模拟器打印的一样。
+映射到真 profile：同样 `github:zzjzzb/ai-memory#COMMIT`，在 profile 补丁里设 `projectId: sme-support`，把 [`seed/tickets.json`](../scenarios/dsh-support-agent/seed/tickets.json) 当用户句。
 
 ---
 
-## 8. 故障排除
+<a id="troubleshooting"></a>
+
+## 故障排除
 
 | 现象 | 常见原因 | 怎么办 |
 |------|----------|--------|
-| 第一次 `dsh plugin add github:…` 失败，提示 ignored build scripts / `Ignored build scripts` | pnpm ≥10 拦住了 `prepare` | 在 **profile** 的 `pnpm-workspace.yaml` 里加 `allowBuilds: { dsh-ai-memory: true }`，再跑 **同一条** `add` |
-| `prepare` / cargo 报 `rustc` / `cargo` 找不到 | 没有 Rust 工具链 | 用 [rustup](https://rustup.rs/) 安装，`cargo --version` 后重新 `add` |
-| 编译报 edition / MSRV | Node 没问题；**Rust 太旧** | 需要 rustc **1.74+**（见 crate 的 `rust-version`）。`rustup update` |
-| `node: … unexpected token` / 插件加载失败 | Node 太旧 | `node -v` 必须 **≥ 20** |
-| `dsh: command not found` | CLI 不在 PATH | 安装 DeepSeek Harness；用已经能跑 `dsh web` 的那个环境 |
-| Git 拉取 401 / `Repository not found` | 没登录 GitHub，或写错地址 | 本仓库是 **公开** 的。核对 spec：`github:zzjzzb/ai-memory`。私有 fork 需要 `gh auth login` 或 git 凭据 |
-| 找不到 `pnpm` | dsh plugin add 依赖 pnpm | 安装 [pnpm](https://pnpm.io/installation)，保证在 PATH 里 |
-| `--dump-config` **没有** `# == dsh-ai-memory` | 包没有 `dsh.bundle.patch`、spec 不对、或 add 没调和 bundles | 确认加的是 **根** `github:zzjzzb/ai-memory`（不是随便一个子目录 URL）。`dsh plugin --profile web list`。再 add 一次 |
-| 层名字在，但没有工具 | 没重启 profile；或 `inject` 失败 | 重启 `dsh --profile web`。看启动日志里的模块解析错误 |
-| 重复 loader `id: dsh-ai-memory` | 组合包层 **和** 手动 insert 了同一个 id | 只走一条路：要么 `dsh plugin add`，要么手动补丁行，不要两套。删掉多余的 insert |
-| 没有 addon；CLI 报 `failed to start` | `prepare` 被跳过或失败；napi 回退到 CLI 也没有 | 允许构建后重新 add，或在 clone 里 `npm run prepare`。确认已安装包下有 `ai-memory.node` 和/或 `bin/ai-memory` |
-| napi 加载失败，CLI 可用 | `.node` 的 Node ABI / 平台不对 | CLI 回退是预期行为。在本机重新 `prepare`，或设置 `cliPath` |
-| 记忆是空的 / 工单不对 | `projectId` 或 `dbPath` 不对 | 按项目隔离。检查 profile 配置。默认库路径是 `~/.local/share/ai-memory/dsh.db` |
-| pack 看起来像整段聊天 | 没用本插件的段，或预算很大 **并且** 你还在别处倒历史 | 找 `ai-memory:pack` / `## Memory (project:`。不要自己把 transcript 贴进系统提示 |
+| `Ignored build scripts: dsh-ai-memory` / `ERR_PNPM_IGNORED_BUILDS` | pnpm ≥10 拦住了 `prepare` | 把 [第 4 步](#allow-prepare) 贴进 **该 profile** 的 `pnpm-workspace.yaml`，再跑 **同一条** `add` |
+| 写了 `allowBuilds` 但 add 仍忽略脚本 | 改错文件 / 嵌进了 `packages` / 键名不对 | 必须是 **该 profile** 的 `pnpm-workspace.yaml`。顶层 `dsh-ai-memory: true`。不要写进 `ignoredBuiltDependencies` |
+| prepare 时 `cargo: command not found` / 没有 `rustc` | 没有 Rust 工具链 | [rustup](https://rustup.rs/) 后重新 add。只跑 JS 测试：`DSH_AI_MEMORY_SKIP_NATIVE=1` |
+| napi 编译失败，随后 `prepare: using CLI fallback` | 插件失败；CLI 编出来了 | **可以。** 插件走 CLI。确认 `--dump-config` 仍有 `# == dsh-ai-memory` |
+| prepare：napi 和 CLI 都没有 | 两次 Rust 构建都失败 | `rustc` **1.74+**（`rustup update`）。重新 add。检查磁盘空间 |
+| 加载插件时 `SyntaxError` / `Unexpected token` | **Node 不对** | `node -v` 必须 **≥ 20**。在这个 Node 上重新 `prepare` 编 `.node` |
+| 有 `.node` 但 `invalid ELF` / `wrong architecture` | 插件是在别的 OS/CPU 上编的 | 在本机重新编。或走 CLI 回退（`bin/ai-memory`）/ 设 `cliPath` |
+| `ai-memory CLI failed to start` | `.node` 没有 **而且** CLI 没有或不可执行 | `allowBuilds` 后重新 add，或在 clone 里 `npm run prepare`。在已安装包下找 `ai-memory.node` 和 `bin/ai-memory` |
+| `dsh: command not found` | CLI 不在 PATH | 用已经能跑 `dsh web` 的那个环境 |
+| Git 401 / `Repository not found` | 写错或私有 fork 没登录 | 公开 spec 是 `github:zzjzzb/ai-memory`。只有私有 fork 才需要 `gh auth login` |
+| `pnpm: command not found` | dsh plugin add 需要 pnpm | [pnpm.io/installation](https://pnpm.io/installation) |
+| `--dump-config` **没有** `# == dsh-ai-memory` | 层没激活 | 加的是 **根** `github:zzjzzb/ai-memory`，不是子目录 URL？`dsh plugin --profile web list`。写完 `allowBuilds` 再 add。确认根 `package.json` 有 `dsh.bundle.patch` |
+| 加了插件但 dump-config 是空的 / 旧的 | **profile 名不一致** | `dsh plugin --profile web add` 之后必须是 **`dsh --profile web --dump-config`**。光写 `dsh --dump-config` 是另一个 profile。注意 `web` / `Web` / `default` |
+| 有层标题但没有工具 | 没重启 profile；inject 失败 | 重启 `dsh --profile web`。启动日志：无法解析 `dsh-ai-memory` |
+| 重复 loader `id: dsh-ai-memory` | 组合包层 **和** 手动 insert 了同一个 id | 只走一条路：要么 `dsh plugin add`，要么手动补丁行 |
+| 记忆是空的 / 工单不对 | `projectId` 或 `dbPath` 不对 | 默认库 `~/.local/share/ai-memory/dsh.db`。按项目隔离 |
+| pack 看起来像整段聊天 | 别处在倒 prompt，或你没看 `ai-memory:pack` | 搜 `## Memory (project:`。不要自己把 transcript 贴进去 |
 
 ---
 
-## 9. 下一步：提交到 dsh.pub（可选）
+## 下一步：dsh.pub（可选）
 
-**不必**上目录也能用插件。GitHub topic **`dsh-plugin`** 已经打在 [zzjzzb/ai-memory](https://github.com/zzjzzb/ai-memory) 上。
+**不必**上目录也能用插件。Topic **`dsh-plugin`** 已经打在仓库上。
 
-若要目录条目，提交 **仓库 URL**（组合包在 **根目录**，本安装路径已满足）：
+若要目录条目，请自行提交仓库 URL：
 
-- 中文：[https://dsh.pub/zh/submit/](https://dsh.pub/zh/submit/)
-- English：[https://dsh.pub/en/submit/](https://dsh.pub/en/submit/)
+- [https://dsh.pub/zh/submit/](https://dsh.pub/zh/submit/)
+- [https://dsh.pub/en/submit/](https://dsh.pub/en/submit/)
 
-dsh.pub 读取根目录包元数据，检查 patch / 入口 / README / 许可证，**不会**执行你的代码。本文不会替你提交。
+本指南不会替你提交。
 
 ---
 

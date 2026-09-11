@@ -2,7 +2,7 @@
   "name": "dsh-ai-memory",
   "version": "0.1.0",
   "type": "module",
-  "description": "DeepSeek Harness Cordis plugin: thin host over the ai-memory Rust + SQLite crate (not a JS memory rewrite)",
+  "description": "dsh Cordis bundle (npm name: dsh-ai-memory) over the Rust crate in this repo (Cargo.toml package name: ai-memory). Not a JS memory rewrite.",
   "license": "MIT OR Apache-2.0",
   "author": "Zhou Ben",
   "repository": {

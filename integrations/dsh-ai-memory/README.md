@@ -17,7 +17,7 @@ Endorsement / architecture: [INTEGRATION_DSH.md](../../docs/INTEGRATION_DSH.md) 
 
 ## Install
 
-**Users:** copy-paste from [INSTALL_DSH.md](../../docs/INSTALL_DSH.md) (prerequisites, pin commit, `allowBuilds`, verify, config, troubleshooting). Short form:
+**Users:** numbered copy-paste in [INSTALL_DSH.md](../../docs/INSTALL_DSH.md) (5-minute path, expected terminal output, `allowBuilds` file, first remember/recall). Short form:
 
 ```bash
 dsh plugin --profile web add github:zzjzzb/ai-memory#<commit>
@@ -65,7 +65,7 @@ Budgeted pack is injected as system-prompt section `ai-memory:pack` when `system
 ## Binding
 
 1. **napi-rs** (`ai-memory-node`) — preferred. `HostSession.dispatch(op, json)` → Rust.
-2. **`ai-memory` CLI** — same JSON envelope, subprocess. Documented fallback / TODO to drop once prebuilt napi artifacts are published.
+2. **`ai-memory` CLI** — same JSON envelope, subprocess. **`prepare` is fail-soft:** if napi fails but the CLI binary was written, install still succeeds and the plugin uses the CLI. Documented fallback / TODO to drop once prebuilt napi artifacts are published.
 
 ## Tests (no full dsh runtime)
 

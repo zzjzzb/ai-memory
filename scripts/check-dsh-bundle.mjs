@@ -20,14 +20,31 @@ function read(rel) {
   return fs.readFileSync(path.join(root, rel), 'utf8')
 }
 
-assert.equal(pkg.name, 'dsh-ai-memory', 'root package name must match patch row name')
+assert.equal(pkg.name, 'dsh-ai-memory', 'root npm/dsh name must match patch row name')
+assert.notEqual(
+  pkg.name,
+  'ai-memory',
+  'npm name must stay dsh-ai-memory so it does not collide with the Cargo crate name ai-memory',
+)
 assert.equal(pkg.type, 'module')
+assert.ok(!('workspaces' in pkg), 'root must not be an npm workspace (would confuse github: install)')
 assert.ok(pkg.dsh && pkg.dsh.bundle && pkg.dsh.bundle.patch, 'missing dsh.bundle.patch')
 assert.equal(pkg.dsh.bundle.patch, './cordis.patch.yml')
 assert.equal(
   pkg.scripts.prepare,
   'node integrations/dsh-ai-memory/scripts/build-native.mjs',
   'prepare must build napi + CLI from this checkout (git install does not run `build`)',
+)
+assert.equal(pkg.scripts.build, pkg.scripts.prepare)
+assert.ok(pkg.engines && pkg.engines.node, 'engines.node required')
+assert.match(String(pkg.engines.node), /20/)
+
+const cargoToml = read('Cargo.toml')
+assert.match(cargoToml, /\[package\]/)
+assert.match(
+  cargoToml,
+  /name\s*=\s*"ai-memory"/,
+  'Cargo.toml crate name must remain ai-memory (npm name is dsh-ai-memory)',
 )
 
 const patchRel = pkg.dsh.bundle.patch
@@ -51,16 +68,27 @@ assert.ok(
   'nested package files must include prepare output ai-memory.node',
 )
 assert.ok(
+  Array.isArray(nestedPkg.files) && nestedPkg.files.includes('bin'),
+  'nested package files must include CLI bin/ for napi fail-soft fallback',
+)
+assert.ok(
   Array.isArray(pkg.files) && pkg.files.includes('integrations/dsh-ai-memory'),
   'root files must include the Cordis host package so git pack keeps JS + native output',
 )
+assert.ok(pkg.files.includes('index.js'))
+assert.ok(pkg.files.includes('cordis.patch.yml'))
+assert.ok(pkg.files.includes('Cargo.toml'))
+assert.ok(pkg.files.includes('src'), 'Rust crate sources must pack so git prepare can compile')
 
 const indexPath = path.join(root, 'index.js')
 assert.ok(fs.existsSync(indexPath), 'root index.js (Host re-export) missing')
+assert.ok(fs.existsSync(path.join(root, 'integrations/dsh-ai-memory/scripts/build-native.mjs')))
 
 const mod = await import(pathToFileURL(indexPath).href)
 assert.equal(mod.name, 'dsh-ai-memory')
 assert.equal(typeof mod.apply, 'function')
 assert.ok(Array.isArray(mod.inject) && mod.inject.includes('tools'))
+assert.ok(mod.inject.includes('systemPrompt'))
+assert.equal(typeof mod.createBridge, 'function')
 
 console.log('check-dsh-bundle: ok (root package.json is an installable dsh bundle)')
