@@ -1,9 +1,11 @@
 # ai-memory
 
+> **给 Agent 用的本地记忆层：按项目存短中长期记忆，超长会话只往模型塞预算内的一小包；可挂 DeepSeek Harness。**
+
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![Rust](https://img.shields.io/badge/rust-1.74%2B-orange.svg)](https://www.rust-lang.org/)
 
-**Open source** local **Rust + SQLite** memory for agent harnesses (pi, Claude-like, Codex-like). You keep the model loop. This crate stores working / episodic / profile notes **per project** and packs a **token-budgeted** slice for the next call.
+Local **Rust + SQLite** memory for agent harnesses: per-project working / episodic / profile notes, and a **token-budgeted** pack for the next model call (not the full transcript). Optional DeepSeek Harness plugin.
 
 It does **not** stuff a 1M-token transcript into the prompt, run consolidate in the background, or talk to an LLM.
 
